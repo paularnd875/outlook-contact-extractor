@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Outlook Contact Extractor{% endblock %}</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        .navbar-brand {
+            font-weight: bold;
+            color: #0066cc !important;
+        }
+        
+        .extraction-status {
+            border-left: 4px solid #0066cc;
+            background-color: #f8f9fa;
+        }
+        
+        .contact-card {
+            transition: all 0.3s ease;
+        }
+        
+        .contact-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .loading-spinner {
+            display: none;
+        }
+        
+        .table-responsive {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .contact-type-badge {
+            font-size: 0.8em;
+        }
+        
+        .signature-preview {
+            max-height: 100px;
+            overflow-y: auto;
+            font-size: 0.9em;
+            background-color: #f8f9fa;
+            border-left: 3px solid #dee2e6;
+            padding: 0.5rem;
+        }
+        
+        .normalized-name {
+            font-family: 'Courier New', monospace;
+            background-color: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+    </style>
+    
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-light shadow-sm">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-address-book me-2"></i>
+                Outlook Contact Extractor
+            </a>
+            
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Accueil</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/dashboard">Tableau de bord</a>
+                    </li>
+                </ul>
+                
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <span class="nav-link" id="user-info">
+                            <i class="fas fa-user me-1"></i>
+                            <span id="user-email">Non connecté</span>
+                        </span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Contenu principal -->
+    <main class="container mt-4">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-light mt-5 py-4">
+        <div class="container text-center">
+            <p class="text-muted mb-0">
+                &copy; 2026 Outlook Contact Extractor - Extraction sécurisée de contacts Outlook
+            </p>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Axios pour les requêtes API -->
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+    
+    <script>
+        // Configuration globale d'Axios
+        axios.defaults.baseURL = window.location.origin;
+        
+        // Utilitaires globaux
+        window.utils = {
+            // Formater une date
+            formatDate: function(dateString) {
+                if (!dateString) return '-';
+                const date = new Date(dateString);
+                return date.toLocaleDateString('fr-FR') + ' ' + date.toLocaleTimeString('fr-FR');
+            },
+            
+            // Formater un nom pour l'affichage
+            formatName: function(contact) {
+                if (contact.nom_complet) return contact.nom_complet;
+                if (contact.prenom && contact.nom) return `${contact.prenom} ${contact.nom}`;
+                if (contact.nom) return contact.nom;
+                if (contact.prenom) return contact.prenom;
+                return contact.email;
+            },
+            
+            // Afficher une notification
+            showNotification: function(message, type = 'info') {
+                const alertClass = type === 'error' ? 'alert-danger' : 
+                                 type === 'success' ? 'alert-success' : 
+                                 type === 'warning' ? 'alert-warning' : 'alert-info';
+                
+                const alert = document.createElement('div');
+                alert.className = `alert ${alertClass} alert-dismissible fade show position-fixed`;
+                alert.style.cssText = 'top: 20px; right: 20px; z-index: 1050; min-width: 300px;';
+                alert.innerHTML = `
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                
+                document.body.appendChild(alert);
+                
+                // Auto-supprimer après 5 secondes
+                setTimeout(() => {
+                    if (alert.parentNode) {
+                        alert.parentNode.removeChild(alert);
+                    }
+                }, 5000);
+            },
+            
+            // Gérer les erreurs API
+            handleApiError: function(error) {
+                console.error('Erreur API:', error);
+                
+                let message = 'Une erreur inattendue est survenue';
+                if (error.response) {
+                    message = error.response.data?.detail || `Erreur ${error.response.status}`;
+                } else if (error.request) {
+                    message = 'Impossible de contacter le serveur';
+                }
+                
+                this.showNotification(message, 'error');
+            }
+        };
+        
+        // Vérifier le statut de connexion au chargement
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuthStatus();
+        });
+        
+        async function checkAuthStatus() {
+            // TODO: Implémenter la vérification du statut de connexion
+            // Pour le moment, simuler un utilisateur non connecté
+        }
+    </script>
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}Accueil - Outlook Contact Extractor{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <!-- Hero Section -->
+        <div class="text-center mb-5">
+            <h1 class="display-4 text-primary mb-3">
+                <i class="fas fa-address-book me-3"></i>
+                Outlook Contact Extractor
+            </h1>
+            <p class="lead text-muted mb-4">
+                Extrayez automatiquement tous les contacts de votre boîte mail Outlook 
+                grâce à une connexion sécurisée Microsoft Graph API.
+            </p>
+        </div>
+
+        <!-- Statut de connexion -->
+        <div id="auth-status" class="card mb-4">
+            <div class="card-body text-center">
+                <div id="not-connected" class="d-none">
+                    <h5 class="card-title text-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        Non connecté à Outlook
+                    </h5>
+                    <p class="card-text text-muted mb-4">
+                        Vous devez vous connecter à votre compte Microsoft pour commencer l'extraction.
+                    </p>
+                    <button id="connect-btn" class="btn btn-primary btn-lg">
+                        <i class="fab fa-microsoft me-2"></i>
+                        Se connecter avec Microsoft
+                    </button>
+                </div>
+                
+                <div id="connected" class="d-none">
+                    <h5 class="card-title text-success">
+                        <i class="fas fa-check-circle me-2"></i>
+                        Connecté à Outlook
+                    </h5>
+                    <p class="card-text text-muted mb-4">
+                        <span id="connected-email">email@example.com</span>
+                    </p>
+                    <a href="/dashboard" class="btn btn-success btn-lg">
+                        <i class="fas fa-arrow-right me-2"></i>
+                        Accéder au tableau de bord
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Fonctionnalités -->
+        <div class="row g-4 mb-5">
+            <div class="col-md-4">
+                <div class="card h-100 text-center">
+                    <div class="card-body">
+                        <div class="text-primary mb-3">
+                            <i class="fas fa-shield-alt fa-3x"></i>
+                        </div>
+                        <h5 class="card-title">Sécurité renforcée</h5>
+                        <p class="card-text text-muted">
+                            Connexion OAuth2 sécurisée, aucun mot de passe stocké
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card h-100 text-center">
+                    <div class="card-body">
+                        <div class="text-primary mb-3">
+                            <i class="fas fa-bolt fa-3x"></i>
+                        </div>
+                        <h5 class="card-title">Extraction rapide</h5>
+                        <p class="card-text text-muted">
+                            Traitement automatique des emails et signatures
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card h-100 text-center">
+                    <div class="card-body">
+                        <div class="text-primary mb-3">
+                            <i class="fas fa-file-csv fa-3x"></i>
+                        </div>
+                        <h5 class="card-title">Export CSV</h5>
+                        <p class="card-text text-muted">
+                            Données normalisées prêtes à l'emploi
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Comment ça marche -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-question-circle me-2"></i>
+                    Comment ça marche ?
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3 text-center mb-3">
+                        <div class="text-primary mb-2">
+                            <i class="fas fa-sign-in-alt fa-2x"></i>
+                        </div>
+                        <h6>1. Connexion</h6>
+                        <p class="text-muted small">
+                            Connectez-vous avec votre compte Microsoft 365
+                        </p>
+                    </div>
+                    
+                    <div class="col-md-3 text-center mb-3">
+                        <div class="text-primary mb-2">
+                            <i class="fas fa-cogs fa-2x"></i>
+                        </div>
+                        <h6>2. Configuration</h6>
+                        <p class="text-muted small">
+                            Choisissez la période d'extraction souhaitée
+                        </p>
+                    </div>
+                    
+                    <div class="col-md-3 text-center mb-3">
+                        <div class="text-primary mb-2">
+                            <i class="fas fa-sync-alt fa-2x"></i>
+                        </div>
+                        <h6>3. Extraction</h6>
+                        <p class="text-muted small">
+                            L'outil analyse vos emails automatiquement
+                        </p>
+                    </div>
+                    
+                    <div class="col-md-3 text-center mb-3">
+                        <div class="text-primary mb-2">
+                            <i class="fas fa-download fa-2x"></i>
+                        </div>
+                        <h6>4. Export</h6>
+                        <p class="text-muted small">
+                            Téléchargez vos contacts au format CSV
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    checkConnectionStatus();
+    
+    document.getElementById('connect-btn').addEventListener('click', function() {
+        window.location.href = '/auth/login';
+    });
+});
+
+async function checkConnectionStatus() {
+    try {
+        // TODO: Vérifier le statut réel de connexion
+        // Pour le moment, simuler un utilisateur non connecté
+        showNotConnected();
+    } catch (error) {
+        console.error('Erreur lors de la vérification du statut:', error);
+        showNotConnected();
+    }
+}
+
+function showNotConnected() {
+    document.getElementById('not-connected').classList.remove('d-none');
+    document.getElementById('connected').classList.add('d-none');
+}
+
+function showConnected(userEmail) {
+    document.getElementById('connected-email').textContent = userEmail;
+    document.getElementById('not-connected').classList.add('d-none');
+    document.getElementById('connected').classList.remove('d-none');
+}
+</script>
+{% endblock %}
