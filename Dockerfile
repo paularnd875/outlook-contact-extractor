@@ -30,5 +30,5 @@ ENV PYTHONUNBUFFERED=1
 # Exposer le port
 EXPOSE 8000
 
-# Commande de démarrage
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Commande de démarrage : écoute sur le port fourni par l'hébergeur ($PORT) sinon 8000
+CMD ["sh", "-c", "python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
