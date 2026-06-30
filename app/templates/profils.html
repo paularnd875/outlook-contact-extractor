@@ -1,0 +1,1500 @@
+{% extends "base.html" %}
+
+{% block title %}Profils IA - Outlook Contact Extractor{% endblock %}
+
+{% block extra_css %}
+<style>
+    .profile-card {
+        border-left: 4px solid;
+        transition: all 0.3s ease;
+    }
+    
+    .profile-card:hover {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    
+    .profile-card.client { border-left-color: #0d6efd; }
+    .profile-card.prescripteur { border-left-color: #198754; }
+    .profile-card.partenaire { border-left-color: #ffc107; }
+    .profile-card.personnel { border-left-color: #dc3545; }
+    .profile-card.autre { border-left-color: #6c757d; }
+    .profile-card.custom { border-left-color: #6f42c1; }
+    
+    .contact-classification {
+        font-size: 0.9em;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+    }
+    
+    .ai-processing {
+        opacity: 0.7;
+    }
+    
+    .confidence-bar {
+        height: 4px;
+        background-color: #e9ecef;
+        border-radius: 2px;
+        overflow: hidden;
+    }
+    
+    .confidence-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #dc3545 0%, #ffc107 50%, #198754 100%);
+        transition: width 0.3s ease;
+    }
+    
+    .sort-btn {
+        border: none !important;
+        padding: 0.2rem 0.4rem;
+        margin: 0 1px;
+        transition: all 0.2s ease;
+    }
+    
+    .sort-btn:hover {
+        transform: scale(1.1);
+    }
+    
+    .sort-btn.btn-primary {
+        background-color: #0066cc !important;
+        color: white !important;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1>
+            <i class="fas fa-robot me-2"></i>
+            Classification IA des Contacts
+        </h1>
+        <p class="text-muted">Configurez les types de contacts et laissez l'IA les classifier automatiquement</p>
+    </div>
+</div>
+
+<!-- Section contexte utilisateur -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-user-cog me-2"></i>
+                    Contexte Professionnel
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <label for="user-context-text" class="form-label">
+                            <strong>Décrivez votre activité professionnelle</strong>
+                        </label>
+                        <p class="text-muted small mb-2">
+                            Expliquez à l'IA ce que vous faites, vos clients types, vos partenaires habituels... 
+                            Cela l'aidera à mieux classifier vos contacts.
+                        </p>
+                        <textarea 
+                            id="user-context-text" 
+                            class="form-control" 
+                            rows="4"
+                            placeholder="Ex: Je suis avocat spécialisé en droit des sociétés. Mes clients sont principalement des startups et PME. Je travaille souvent avec des experts-comptables et notaires..."
+                        ></textarea>
+                        <div class="mt-2">
+                            <button id="save-context-btn" class="btn btn-success me-2">
+                                <i class="fas fa-save me-1"></i>
+                                Enregistrer le contexte
+                            </button>
+                            <button id="clear-context-btn" class="btn btn-outline-secondary">
+                                <i class="fas fa-eraser me-1"></i>
+                                Effacer
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-light">
+                            <div class="card-header">
+                                <h6 class="mb-0">
+                                    <i class="fab fa-linkedin me-2"></i>
+                                    Profil LinkedIn
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                
+                                <!-- Option 1: Copier-coller (recommandée) -->
+                                <div class="border rounded p-2 mb-3 bg-success bg-opacity-10">
+                                    <h6 class="text-success small mb-2">
+                                        <i class="fas fa-star"></i> Méthode recommandée
+                                    </h6>
+                                    <p class="small text-muted mb-2">
+                                        1. Ouvrez votre profil LinkedIn<br>
+                                        2. Sélectionnez tout (Ctrl+A / Cmd+A)<br>
+                                        3. Copiez (Ctrl+C / Cmd+C)<br>
+                                        4. Cliquez ci-dessous
+                                    </p>
+                                    <button id="paste-linkedin-btn" class="btn btn-success btn-sm w-100">
+                                        <i class="fas fa-paste me-1"></i>
+                                        Coller le profil LinkedIn
+                                    </button>
+                                </div>
+                                
+                                <!-- Option 2: URL automatique -->
+                                <div class="border rounded p-2">
+                                    <h6 class="text-warning small mb-2">
+                                        <i class="fas fa-robot"></i> Import automatique
+                                    </h6>
+                                    <div class="mb-2">
+                                        <label for="linkedin-profile-url" class="form-label small">URL de profil LinkedIn</label>
+                                        <input 
+                                            type="url" 
+                                            id="linkedin-profile-url" 
+                                            class="form-control form-control-sm" 
+                                            placeholder="https://linkedin.com/in/..."
+                                        >
+                                    </div>
+                                    <button id="import-linkedin-btn" class="btn btn-outline-warning btn-sm w-100">
+                                        <i class="fab fa-linkedin me-1"></i>
+                                        Importer par URL
+                                    </button>
+                                    <p class="small text-muted mt-1 mb-0">
+                                        ⚠️ Peut échouer selon la confidentialité
+                                    </p>
+                                </div>
+                                
+                                <div id="linkedin-import-status" class="mt-2 d-none">
+                                    <div class="text-center">
+                                        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                                        <small class="text-muted ms-2">Import en cours...</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Configuration des types de profils -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-cogs me-2"></i>
+                    Types de Profils
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-8">
+                        <p class="text-muted mb-3">
+                            Définissez vos types de contacts avec des descriptions pour aider l'IA à les identifier.
+                        </p>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <button id="add-profile-type-btn" class="btn btn-primary">
+                            <i class="fas fa-plus me-1"></i>
+                            Ajouter un type
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="profile-types-container">
+                    <!-- Types de profils prédéfinis -->
+                    <div class="profile-card client card mb-3">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-3">
+                                    <h6 class="mb-0">Client</h6>
+                                    <span class="badge bg-primary">Prédéfini</span>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-muted">
+                                        Personnes ou entreprises qui ont fait appel à vos services juridiques.
+                                        Mots-clés : contrat, facturation, dossier, affaire.
+                                    </small>
+                                </div>
+                                <div class="col-md-3 text-end">
+                                    <button class="btn btn-sm btn-outline-secondary me-2" onclick="editProfileType('client')">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteProfileType('client')" disabled>
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="profile-card prescripteur card mb-3">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-3">
+                                    <h6 class="mb-0">Prescripteur</h6>
+                                    <span class="badge bg-success">Prédéfini</span>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-muted">
+                                        Professionnels qui vous recommandent des clients (notaires, experts-comptables, etc.).
+                                        Mots-clés : recommandation, orientation, collaboration.
+                                    </small>
+                                </div>
+                                <div class="col-md-3 text-end">
+                                    <button class="btn btn-sm btn-outline-secondary me-2" onclick="editProfileType('prescripteur')">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteProfileType('prescripteur')" disabled>
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="profile-card partenaire card mb-3">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-3">
+                                    <h6 class="mb-0">Partenaire</h6>
+                                    <span class="badge bg-warning">Prédéfini</span>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-muted">
+                                        Confrères et partenaires professionnels avec qui vous collaborez.
+                                        Mots-clés : collaboration, co-traitance, réseau professionnel.
+                                    </small>
+                                </div>
+                                <div class="col-md-3 text-end">
+                                    <button class="btn btn-sm btn-outline-secondary me-2" onclick="editProfileType('partenaire')">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteProfileType('partenaire')" disabled>
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="profile-card personnel card mb-3">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-3">
+                                    <h6 class="mb-0">Personnel</h6>
+                                    <span class="badge bg-danger">Prédéfini</span>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-muted">
+                                        Contacts personnels, amis, famille.
+                                        Mots-clés : personnel, amical, famille, privé.
+                                    </small>
+                                </div>
+                                <div class="col-md-3 text-end">
+                                    <button class="btn btn-sm btn-outline-secondary me-2" onclick="editProfileType('personnel')">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteProfileType('personnel')" disabled>
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="profile-card autre card mb-3">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-3">
+                                    <h6 class="mb-0">Autre</h6>
+                                    <span class="badge bg-dark">Prédéfini</span>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-muted">
+                                        Marketing, newsletters, publicités et autres contacts commerciaux.
+                                        Mots-clés : newsletter, marketing, pub, spam, unsubscribe.
+                                    </small>
+                                </div>
+                                <div class="col-md-3 text-end">
+                                    <button class="btn btn-sm btn-outline-secondary me-2" onclick="editProfileType('autre')">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteProfileType('autre')" disabled>
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Classification des contacts -->
+<div class="row mb-4" id="classification-section" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-brain me-2"></i>
+                    Classification Automatique
+                </h5>
+                <button id="start-classification-btn" class="btn btn-success">
+                    <i class="fas fa-magic me-1"></i>
+                    Classifier avec l'IA
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="classification-progress" class="d-none">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="spinner-border spinner-border-sm text-success me-3">
+                            <span class="visually-hidden">Classification en cours...</span>
+                        </div>
+                        <div class="flex-grow-1">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span>Classification IA en cours...</span>
+                                <span id="classification-progress-text">0%</span>
+                            </div>
+                            <div class="progress" style="height: 6px;">
+                                <div id="classification-progress-bar" class="progress-bar bg-success" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="text-muted mb-0" id="classification-details">
+                        Analyse des signatures et contextes...
+                    </p>
+                </div>
+                
+                <div id="classification-results" class="d-none">
+                    <p class="text-muted mb-3">
+                        L'IA a analysé vos contacts. Vous pouvez modifier les classifications ci-dessous.
+                    </p>
+                    
+                    <!-- Filtres -->
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label small">Type de contact</label>
+                            <select id="classification-filter" class="form-select">
+                                <option value="">Tous les types</option>
+                                <option value="client">Clients</option>
+                                <option value="prescripteur">Prescripteurs</option>
+                                <option value="partenaire">Partenaires</option>
+                                <option value="personnel">Personnel</option>
+                                <option value="autre">Autre (pub/newsletter)</option>
+                                <option value="non-classifie">Non classifiés</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small">Niveau de confiance</label>
+                            <select id="confidence-filter" class="form-select">
+                                <option value="">Toutes les confiances</option>
+                                <option value="high">Confiance élevée (>80%)</option>
+                                <option value="medium">Confiance moyenne (50-80%)</option>
+                                <option value="low">Confiance faible (<50%)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small">Recherche</label>
+                            <input type="text" id="contact-search" class="form-control" placeholder="Rechercher un contact...">
+                        </div>
+                    </div>
+                    
+                    <!-- En-têtes de tableau avec boutons de tri -->
+                    <div class="row mb-2 border-bottom pb-2">
+                        <div class="col-md-3">
+                            <div class="d-flex align-items-center">
+                                <strong class="me-2">Contact</strong>
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" 
+                                            onclick="sortContacts('name', 'asc')" title="Trier nom A-Z">
+                                        <i class="fas fa-sort-alpha-down"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" 
+                                            onclick="sortContacts('name', 'desc')" title="Trier nom Z-A">
+                                        <i class="fas fa-sort-alpha-up"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="d-flex align-items-center">
+                                <strong class="me-2">Classification</strong>
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" 
+                                            onclick="sortContacts('classification', 'asc')" title="Trier classification A-Z">
+                                        <i class="fas fa-sort-alpha-down"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" 
+                                            onclick="sortContacts('classification', 'desc')" title="Trier classification Z-A">
+                                        <i class="fas fa-sort-alpha-up"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="d-flex align-items-center">
+                                <strong class="me-2">Confiance</strong>
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" 
+                                            onclick="sortContacts('confidence', 'desc')" title="Confiance décroissante">
+                                        <i class="fas fa-sort-numeric-down"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" 
+                                            onclick="sortContacts('confidence', 'asc')" title="Confiance croissante">
+                                        <i class="fas fa-sort-numeric-up"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Justification</strong>
+                        </div>
+                        <div class="col-md-2">
+                            <strong>Actions</strong>
+                        </div>
+                    </div>
+                    
+                    <!-- Liste des contacts classifiés -->
+                    <div id="classified-contacts-list">
+                        <!-- Sera rempli dynamiquement -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pour ajouter/éditer un type de profil -->
+<div class="modal fade" id="profileTypeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="profileTypeModalTitle">Nouveau Type de Profil</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="profileTypeForm">
+                    <div class="mb-3">
+                        <label for="profileTypeName" class="form-label">Nom du type</label>
+                        <input type="text" class="form-control" id="profileTypeName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="profileTypeDescription" class="form-label">Description</label>
+                        <textarea class="form-control" id="profileTypeDescription" rows="3" 
+                                placeholder="Décrivez ce type de contact pour aider l'IA à l'identifier..." required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="profileTypeKeywords" class="form-label">Mots-clés (optionnel)</label>
+                        <input type="text" class="form-control" id="profileTypeKeywords" 
+                               placeholder="mot1, mot2, mot3...">
+                    </div>
+                    <div class="mb-3">
+                        <label for="profileTypeColor" class="form-label">Couleur</label>
+                        <select class="form-select" id="profileTypeColor">
+                            <option value="#6f42c1">Violet</option>
+                            <option value="#e83e8c">Rose</option>
+                            <option value="#fd7e14">Orange</option>
+                            <option value="#20c997">Turquoise</option>
+                            <option value="#6610f2">Indigo</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn-primary" id="saveProfileTypeBtn">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let profileTypes = [
+    { 
+        id: 'client', 
+        name: 'Client', 
+        description: 'Personnes ou entreprises qui ont fait appel à vos services juridiques.',
+        keywords: 'contrat, facturation, dossier, affaire',
+        color: '#0d6efd',
+        predefined: true 
+    },
+    { 
+        id: 'prescripteur', 
+        name: 'Prescripteur', 
+        description: 'Professionnels qui vous recommandent des clients (notaires, experts-comptables, etc.).',
+        keywords: 'recommandation, orientation, collaboration',
+        color: '#198754',
+        predefined: true 
+    },
+    { 
+        id: 'partenaire', 
+        name: 'Partenaire', 
+        description: 'Confrères et partenaires professionnels avec qui vous collaborez.',
+        keywords: 'collaboration, co-traitance, réseau professionnel',
+        color: '#ffc107',
+        predefined: true 
+    },
+    { 
+        id: 'personnel', 
+        name: 'Personnel', 
+        description: 'Contacts personnels, amis, famille.',
+        keywords: 'personnel, amical, famille, privé',
+        color: '#dc3545',
+        predefined: true 
+    },
+    { 
+        id: 'autre', 
+        name: 'Autre', 
+        description: 'Marketing, newsletters, publicités et autres contacts commerciaux.',
+        keywords: 'newsletter, marketing, pub, spam, unsubscribe',
+        color: '#6c757d',
+        predefined: true 
+    }
+];
+
+let currentSessionId = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    initializeProfilesPage();
+});
+
+async function initializeProfilesPage() {
+    // Event listeners
+    document.getElementById('add-profile-type-btn').addEventListener('click', showAddProfileTypeModal);
+    document.getElementById('saveProfileTypeBtn').addEventListener('click', saveProfileType);
+    document.getElementById('start-classification-btn').addEventListener('click', startClassification);
+    
+    // Charger les types de profils depuis l'API
+    await loadProfileTypes();
+    
+    // Vérifier s'il y a une session de contacts à classifier
+    checkForContacts();
+}
+
+async function loadProfileTypes() {
+    try {
+        const response = await axios.get('/api/ai/profile-types');
+        profileTypes = response.data.profiles.map(profile => ({
+            id: profile.id,
+            name: profile.name,
+            description: profile.description,
+            keywords: profile.keywords.join(', '),
+            color: getProfileColor(profile.color),
+            predefined: true
+        }));
+        console.log('Types de profils chargés:', profileTypes);
+        renderProfileTypeCards();
+    } catch (error) {
+        console.error('Erreur lors du chargement des types de profils:', error);
+        // Utiliser les profils par défaut en cas d'erreur
+    }
+}
+
+function renderProfileTypeCards() {
+    const container = document.getElementById('profile-types-container');
+    if (!container) return;
+    // Régénère les cartes depuis les catégories du backend (toujours à jour)
+    container.innerHTML = profileTypes.map(p => `
+        <div class="profile-card card mb-3" style="border-left: 4px solid ${p.color}">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-3">
+                        <h6 class="mb-0">${p.name}</h6>
+                        <span class="badge" style="background:${p.color}">Catégorie</span>
+                    </div>
+                    <div class="col-md-9">
+                        <small class="text-muted">${p.description}<br>
+                        <strong>Mots-clés :</strong> ${p.keywords}</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function getProfileColor(colorName) {
+    const colorMap = {
+        'success': '#198754',
+        'info': '#0dcaf0', 
+        'warning': '#ffc107',
+        'secondary': '#6c757d',
+        'dark': '#212529',
+        'primary': '#0d6efd'
+    };
+    return colorMap[colorName] || '#6c757d';
+}
+
+async function checkForContacts() {
+    try {
+        // Récupérer la session stockée
+        const storedSessionId = localStorage.getItem('currentSessionId');
+        if (storedSessionId) {
+            const response = await axios.get(`/api/extraction/${storedSessionId}/status`);
+            const session = response.data;
+            
+            if (session.status === 'completed' && session.total_contacts > 0) {
+                currentSessionId = storedSessionId;
+                document.getElementById('classification-section').style.display = 'block';
+            }
+        }
+    } catch (error) {
+        console.log('Aucune session de contacts disponible pour la classification');
+    }
+}
+
+function showAddProfileTypeModal() {
+    document.getElementById('profileTypeModalTitle').textContent = 'Nouveau Type de Profil';
+    document.getElementById('profileTypeForm').reset();
+    new bootstrap.Modal(document.getElementById('profileTypeModal')).show();
+}
+
+function editProfileType(typeId) {
+    const profileType = profileTypes.find(p => p.id === typeId);
+    if (!profileType) return;
+    
+    document.getElementById('profileTypeModalTitle').textContent = 'Modifier le Type de Profil';
+    document.getElementById('profileTypeName').value = profileType.name;
+    document.getElementById('profileTypeDescription').value = profileType.description;
+    document.getElementById('profileTypeKeywords').value = profileType.keywords || '';
+    document.getElementById('profileTypeColor').value = profileType.color;
+    
+    new bootstrap.Modal(document.getElementById('profileTypeModal')).show();
+}
+
+function saveProfileType() {
+    const name = document.getElementById('profileTypeName').value;
+    const description = document.getElementById('profileTypeDescription').value;
+    const keywords = document.getElementById('profileTypeKeywords').value;
+    const color = document.getElementById('profileTypeColor').value;
+    
+    if (!name || !description) {
+        alert('Nom et description sont requis');
+        return;
+    }
+    
+    // Pour le MVP, on simule la sauvegarde
+    alert('Type de profil sauvegardé avec succès');
+    bootstrap.Modal.getInstance(document.getElementById('profileTypeModal')).hide();
+}
+
+async function startClassification() {
+    if (!currentSessionId) {
+        alert('Aucune extraction disponible pour la classification');
+        return;
+    }
+    
+    document.getElementById('start-classification-btn').classList.add('d-none');
+    document.getElementById('classification-progress').classList.remove('d-none');
+    
+    try {
+        // Charger les types de profils depuis l'API
+        const profileTypesResponse = await axios.get('/api/ai/profile-types');
+        const profileTypes = profileTypesResponse.data.profiles;
+        
+        // Lancer la classification réelle avec l'IA
+        await performRealAIClassification(profileTypes);
+    } catch (error) {
+        console.error('Erreur lors de la classification:', error);
+        utils.handleApiError(error);
+        
+        // En cas d'erreur, revenir à l'état initial
+        document.getElementById('start-classification-btn').classList.remove('d-none');
+        document.getElementById('classification-progress').classList.add('d-none');
+    }
+}
+
+async function performRealAIClassification(profileTypes) {
+    try {
+        document.getElementById('classification-progress-bar').style.width = '10%';
+        document.getElementById('classification-progress-text').textContent = '10%';
+        document.getElementById('classification-details').textContent = 'Préparation de la classification IA...';
+        
+        // Lancer la classification réelle
+        const classificationRequest = {
+            session_id: currentSessionId,
+            profile_types: profileTypes,
+            batch_size: 10
+        };
+        
+        document.getElementById('classification-progress-bar').style.width = '30%';
+        document.getElementById('classification-progress-text').textContent = '30%';
+        document.getElementById('classification-details').textContent = 'Envoi des données à l\'IA Hugging Face...';
+        
+        const response = await axios.post('/api/ai/classify-contacts', classificationRequest);
+        const classifications = response.data.classifications;
+        
+        document.getElementById('classification-progress-bar').style.width = '80%';
+        document.getElementById('classification-progress-text').textContent = '80%';
+        document.getElementById('classification-details').textContent = 'Traitement des résultats...';
+        
+        // Simuler un petit délai pour l'UX
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        document.getElementById('classification-progress-bar').style.width = '100%';
+        document.getElementById('classification-progress-text').textContent = '100%';
+        document.getElementById('classification-details').textContent = 'Classification terminée !';
+        
+        // Afficher les résultats
+        document.getElementById('classification-progress').classList.add('d-none');
+        document.getElementById('classification-results').classList.remove('d-none');
+        
+        alert(`Classification IA terminée ! ${response.data.processed_contacts} contacts analysés.`);
+        
+        // Charger les contacts avec leurs vraies classifications
+        await loadClassifiedContactsFromAPI(classifications);
+        
+    } catch (error) {
+        console.error('Erreur lors de la classification IA:', error);
+        throw error;
+    }
+}
+
+async function loadClassifiedContactsFromAPI(classifications) {
+    try {
+        // Récupérer les informations détaillées des contacts
+        const contactsResponse = await axios.get(`/api/contacts?session_id=${currentSessionId}&limit=500`);
+        const contacts = contactsResponse.data.contacts;
+        
+        // Combiner les informations de contact avec les classifications
+        const classifiedContacts = classifications.map(classification => {
+            const contact = contacts.find(c => c.id === classification.contact_id);
+            if (!contact) return null;
+            
+            return {
+                name: contact.nom_complet || `${contact.prenom || ''} ${contact.nom || ''}`.trim() || contact.email,
+                email: contact.email,
+                classification: classification.profile_type,
+                confidence: classification.confidence,
+                reason: classification.reasoning,
+                id: contact.id
+            };
+        }).filter(c => c !== null);
+        
+        displayClassifiedContacts(classifiedContacts);
+        
+    } catch (error) {
+        console.error('Erreur lors du chargement des contacts classifiés:', error);
+        utils.handleApiError(error);
+    }
+}
+
+// Fonction de fallback pour les tests (conservée)
+async function loadClassifiedContacts() {
+    // Pour le MVP, on simule quelques contacts classifiés
+    const mockContacts = [
+        {
+            name: 'Jean Dupont',
+            email: 'jean.dupont@example.com',
+            classification: 'client',
+            confidence: 0.87,
+            reason: 'Mentions de "contrat" et "facturation" dans les emails'
+        },
+        {
+            name: 'Marie Martin',
+            email: 'marie.martin@notaire.fr',
+            classification: 'prescripteur',
+            confidence: 0.92,
+            reason: 'Profil notaire, recommandations clients'
+        },
+        {
+            name: 'Pierre Bernard',
+            email: 'pierre@avocat-partners.com',
+            classification: 'partenaire',
+            confidence: 0.78,
+            reason: 'Échanges professionnels, collaboration'
+        }
+    ];
+    
+    displayClassifiedContacts(mockContacts);
+}
+
+function displayClassifiedContacts(contacts) {
+    const container = document.getElementById('classified-contacts-list');
+    container.innerHTML = '';
+    
+    console.log('Affichage de', contacts.length, 'contacts classifiés');
+    
+    contacts.forEach(contact => {
+        const profileType = profileTypes.find(p => p.id === contact.classification) || {
+            id: 'unknown',
+            name: 'Non classifié',
+            color: '#6c757d'
+        };
+        const confidenceColor = contact.confidence > 0.8 ? 'success' : contact.confidence > 0.5 ? 'warning' : 'danger';
+        
+        const contactHtml = `
+            <div class="card mb-2">
+                <div class="card-body py-2">
+                    <div class="row align-items-center">
+                        <div class="col-md-3">
+                            <strong>${contact.name}</strong><br>
+                            <small class="text-muted">${contact.email}</small>
+                        </div>
+                        <div class="col-md-2">
+                            <span class="badge" style="background-color: ${profileType.color};">
+                                ${profileType.name}
+                            </span>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="confidence-bar mb-1">
+                                <div class="confidence-fill" style="width: ${contact.confidence * 100}%"></div>
+                            </div>
+                            <small class="text-${confidenceColor}">${Math.round(contact.confidence * 100)}%</small>
+                        </div>
+                        <div class="col-md-3">
+                            <small class="text-muted">${contact.reason}</small>
+                        </div>
+                        <div class="col-md-2 text-end">
+                            <div class="dropdown">
+                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                                    Modifier
+                                </button>
+                                <ul class="dropdown-menu">
+                                    ${profileTypes.map(type => 
+                                        `<li><a class="dropdown-item" href="#" onclick="changeClassification(${contact.id}, '${type.id}')">${type.name}</a></li>`
+                                    ).join('')}
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item text-muted" href="#" onclick="changeClassification(${contact.id}, null)">Non classifié</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        container.innerHTML += contactHtml;
+    });
+}
+
+async function changeClassification(contactId, newType) {
+    try {
+        const response = await axios.post('/api/ai/update-contact-profile', {
+            contact_id: contactId,
+            profile_type: newType || 'unknown'
+        });
+        
+        alert(`Classification mise à jour pour le contact`);
+        
+        // Recharger l'affichage pour refléter le changement
+        // Pour une meilleure UX, on pourrait juste mettre à jour l'élément en place
+        
+    } catch (error) {
+        console.error('Erreur lors de la mise à jour:', error);
+        utils.handleApiError(error);
+    }
+}
+
+// Variables globales pour le tri et filtrage
+let allClassifiedContacts = [];
+let filteredContacts = [];
+
+// Variables pour le tri actuel
+let currentSortColumn = 'confidence';
+let currentSortDirection = 'desc';
+
+// Fonction pour trier les contacts (nouvelle version avec boutons)
+function sortContacts(column, direction) {
+    // Mettre à jour l'état du tri
+    currentSortColumn = column;
+    currentSortDirection = direction;
+    
+    // Mettre à jour l'apparence des boutons
+    updateSortButtons(column, direction);
+    
+    // Réappliquer les filtres et le tri
+    applyFiltersAndSort();
+}
+
+// Fonction pour effectuer le tri sur un tableau de contacts
+function applySortToContacts(contacts, column, direction) {
+    const sortedContacts = [...contacts];
+    
+    switch(column) {
+        case 'confidence':
+            return direction === 'desc' ? 
+                sortedContacts.sort((a, b) => b.confidence - a.confidence) :
+                sortedContacts.sort((a, b) => a.confidence - b.confidence);
+        case 'name':
+            return direction === 'asc' ? 
+                sortedContacts.sort((a, b) => a.name.localeCompare(b.name)) :
+                sortedContacts.sort((a, b) => b.name.localeCompare(a.name));
+        case 'classification':
+            return direction === 'asc' ? 
+                sortedContacts.sort((a, b) => a.classification.localeCompare(b.classification)) :
+                sortedContacts.sort((a, b) => b.classification.localeCompare(a.classification));
+        default:
+            return sortedContacts;
+    }
+}
+
+// Fonction pour mettre à jour l'apparence des boutons de tri
+function updateSortButtons(activeColumn, activeDirection) {
+    // Réinitialiser tous les boutons
+    document.querySelectorAll('.sort-btn').forEach(btn => {
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-outline-secondary');
+    });
+    
+    // Activer le bouton correspondant
+    const activeBtn = document.querySelector(`[onclick*="'${activeColumn}', '${activeDirection}'"]`);
+    if (activeBtn) {
+        activeBtn.classList.remove('btn-outline-secondary');
+        activeBtn.classList.add('btn-primary');
+    }
+}
+
+// Fonction pour filtrer les contacts
+function filterContacts(contacts, classificationFilter, confidenceFilter, searchText) {
+    return contacts.filter(contact => {
+        // Filtre par classification
+        if (classificationFilter && contact.classification !== classificationFilter) {
+            return false;
+        }
+        
+        // Filtre par confiance
+        if (confidenceFilter) {
+            switch(confidenceFilter) {
+                case 'high':
+                    if (contact.confidence <= 0.8) return false;
+                    break;
+                case 'medium':
+                    if (contact.confidence <= 0.5 || contact.confidence > 0.8) return false;
+                    break;
+                case 'low':
+                    if (contact.confidence > 0.5) return false;
+                    break;
+            }
+        }
+        
+        // Filtre par recherche texte
+        if (searchText) {
+            const search = searchText.toLowerCase();
+            return contact.name.toLowerCase().includes(search) || 
+                   contact.email.toLowerCase().includes(search) ||
+                   contact.reason.toLowerCase().includes(search);
+        }
+        
+        return true;
+    });
+}
+
+// Fonction pour appliquer les filtres et tri
+function applyFiltersAndSort() {
+    const classificationFilter = document.getElementById('classification-filter').value;
+    const confidenceFilter = document.getElementById('confidence-filter').value;
+    const searchText = document.getElementById('contact-search').value;
+    
+    // Filtrer puis trier
+    filteredContacts = filterContacts(allClassifiedContacts, classificationFilter, confidenceFilter, searchText);
+    const sortedContacts = applySortToContacts(filteredContacts, currentSortColumn, currentSortDirection);
+    
+    // Afficher les résultats
+    displayClassifiedContacts(sortedContacts);
+    
+    // Mettre à jour le compteur
+    const totalCount = allClassifiedContacts.length;
+    const filteredCount = sortedContacts.length;
+    updateContactsCounter(filteredCount, totalCount);
+}
+
+// Fonction pour mettre à jour le compteur de contacts
+function updateContactsCounter(filtered, total) {
+    const existingCounter = document.getElementById('contacts-counter');
+    if (existingCounter) {
+        existingCounter.remove();
+    }
+    
+    const counterHtml = `
+        <div id="contacts-counter" class="d-flex justify-content-between align-items-center mb-3">
+            <span class="text-muted">
+                Affichage de ${filtered} contact(s) sur ${total} total
+            </span>
+        </div>
+    `;
+    
+    const contactsList = document.getElementById('classified-contacts-list');
+    contactsList.insertAdjacentHTML('beforebegin', counterHtml);
+}
+
+// Gestion du contexte utilisateur
+document.addEventListener('DOMContentLoaded', function() {
+    // Event listeners pour les filtres (plus besoin du tri dropdown)
+    document.getElementById('classification-filter').addEventListener('change', applyFiltersAndSort);
+    document.getElementById('confidence-filter').addEventListener('change', applyFiltersAndSort);
+    document.getElementById('contact-search').addEventListener('input', debounce(applyFiltersAndSort, 300));
+    
+    // Event listeners pour le contexte utilisateur
+    document.getElementById('save-context-btn').addEventListener('click', saveUserContext);
+    document.getElementById('clear-context-btn').addEventListener('click', clearUserContext);
+    document.getElementById('import-linkedin-btn').addEventListener('click', importLinkedInProfile);
+    document.getElementById('paste-linkedin-btn').addEventListener('click', pasteLinkedInProfile);
+    
+    // Charger le contexte utilisateur existant
+    loadUserContext();
+    
+    // Initialiser le tri par défaut (confiance décroissante)
+    setTimeout(() => {
+        updateSortButtons('confidence', 'desc');
+    }, 100);
+});
+
+// Fonction pour enregistrer le contexte utilisateur
+async function saveUserContext() {
+    const contextText = document.getElementById('user-context-text').value;
+    
+    if (!contextText.trim()) {
+        alert('Veuillez entrer une description de votre activité');
+        return;
+    }
+    
+    try {
+        // Simuler la sauvegarde (à implémenter côté backend)
+        localStorage.setItem('user-professional-context', contextText);
+        alert('Contexte professionnel enregistré avec succès');
+        
+        // TODO: Envoyer au backend pour améliorer la classification
+        
+    } catch (error) {
+        console.error('Erreur lors de la sauvegarde du contexte:', error);
+        alert('Erreur lors de la sauvegarde');
+    }
+}
+
+// Fonction pour effacer le contexte utilisateur
+function clearUserContext() {
+    document.getElementById('user-context-text').value = '';
+    localStorage.removeItem('user-professional-context');
+    alert('Contexte effacé');
+}
+
+// Fonction pour charger le contexte utilisateur
+function loadUserContext() {
+    const savedContext = localStorage.getItem('user-professional-context');
+    if (savedContext) {
+        document.getElementById('user-context-text').value = savedContext;
+    }
+}
+
+// Ancienne fonction de génération supprimée - remplacée par le vrai scraping LinkedIn
+
+// Fonction pour importer le profil LinkedIn
+async function importLinkedInProfile() {
+    const linkedInUrl = document.getElementById('linkedin-profile-url').value;
+    
+    if (!linkedInUrl.trim()) {
+        alert('Veuillez entrer l\'URL de votre profil LinkedIn');
+        return;
+    }
+    
+    if (!linkedInUrl.includes('linkedin.com')) {
+        alert('Veuillez entrer une URL LinkedIn valide');
+        return;
+    }
+    
+    // Afficher le spinner
+    document.getElementById('linkedin-import-status').classList.remove('d-none');
+    document.getElementById('import-linkedin-btn').disabled = true;
+    
+    try {
+        // Appeler le vrai scraping LinkedIn via l'API
+        const response = await axios.post('/api/ai/scrape-linkedin', {
+            linkedin_url: linkedInUrl
+        });
+        
+        if (response.data.success) {
+            const profileDescription = response.data.profile_description;
+            
+            // Vérifier que l'élément existe
+            const textArea = document.getElementById('user-context-text');
+            if (textArea) {
+                textArea.value = profileDescription;
+                console.log('Profil LinkedIn scraped:', response.data.extracted_info);
+                console.log('Textarea mise à jour avec:', profileDescription);
+                
+                // Sauvegarder silencieusement (sans alert)
+                localStorage.setItem('user-professional-context', profileDescription);
+                
+                // Une seule alerte pour confirmer l'import
+                alert('Profil LinkedIn importé avec succès ! Informations extraites du profil réel.');
+            } else {
+                console.error('Élément user-context-text non trouvé');
+                alert('Erreur: zone de texte non trouvée');
+            }
+        } else {
+            alert('Erreur lors de l\'extraction du profil LinkedIn');
+        }
+        
+    } catch (error) {
+        console.error('Erreur lors de l\'import LinkedIn:', error);
+        alert('Erreur lors de l\'importation du profil LinkedIn');
+    } finally {
+        // Masquer le spinner
+        document.getElementById('linkedin-import-status').classList.add('d-none');
+        document.getElementById('import-linkedin-btn').disabled = false;
+    }
+}
+
+// Fonction pour coller le profil LinkedIn depuis le presse-papiers
+async function pasteLinkedInProfile() {
+    try {
+        // Vérifier si l'API Clipboard est disponible
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+            // Fallback : demander à l'utilisateur de coller manuellement
+            const pastedText = prompt("Collez votre profil LinkedIn ici :");
+            if (pastedText) {
+                await processLinkedInPaste(pastedText);
+            }
+            return;
+        }
+        
+        // Afficher le spinner
+        document.getElementById('linkedin-import-status').classList.remove('d-none');
+        document.getElementById('paste-linkedin-btn').disabled = true;
+        
+        // Lire le presse-papiers
+        const clipboardText = await navigator.clipboard.readText();
+        
+        if (!clipboardText.trim()) {
+            alert('Le presse-papiers est vide. Copiez d\'abord votre profil LinkedIn (Ctrl+A puis Ctrl+C sur la page LinkedIn).');
+            return;
+        }
+        
+        // Traiter le texte collé
+        await processLinkedInPaste(clipboardText);
+        
+    } catch (error) {
+        console.error('Erreur lors de la lecture du presse-papiers:', error);
+        
+        // Fallback si l'accès au presse-papiers échoue
+        const pastedText = prompt(`Erreur d'accès au presse-papiers. 
+
+Instructions:
+1. Ouvrez votre profil LinkedIn dans un nouvel onglet
+2. Sélectionnez tout le contenu (Ctrl+A ou Cmd+A)
+3. Copiez (Ctrl+C ou Cmd+C)
+4. Collez le contenu ci-dessous:
+
+Contenu LinkedIn:`);
+        
+        if (pastedText) {
+            await processLinkedInPaste(pastedText);
+        }
+    } finally {
+        // Masquer le spinner
+        document.getElementById('linkedin-import-status').classList.add('d-none');
+        document.getElementById('paste-linkedin-btn').disabled = false;
+    }
+}
+
+// Traiter le contenu LinkedIn collé
+async function processLinkedInPaste(clipboardText) {
+    try {
+        // Analyser et nettoyer le texte collé
+        const processedProfile = analyzeLinkedInClipboard(clipboardText);
+        
+        // Vérifier que l'élément textarea existe
+        const textArea = document.getElementById('user-context-text');
+        if (textArea) {
+            textArea.value = processedProfile;
+            console.log('Profil LinkedIn collé et traité:', processedProfile);
+            
+            // Sauvegarder silencieusement
+            localStorage.setItem('user-professional-context', processedProfile);
+            
+            // Confirmation
+            alert('Profil LinkedIn importé avec succès ! Contenu analysé et structuré.');
+        } else {
+            console.error('Élément user-context-text non trouvé');
+            alert('Erreur: zone de texte non trouvée');
+        }
+        
+    } catch (error) {
+        console.error('Erreur lors du traitement du profil LinkedIn:', error);
+        alert('Erreur lors du traitement du profil. Vérifiez que vous avez bien copié votre profil LinkedIn.');
+    }
+}
+
+// Analyser et structurer le contenu LinkedIn collé (version améliorée)
+function analyzeLinkedInClipboard(text) {
+    // Nettoyer et préparer le texte
+    const cleanedText = text
+        .replace(/\s+/g, ' ')  // Remplacer les espaces multiples
+        .replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]/gu, '') // Supprimer les emojis
+        .replace(/\n+/g, '\n') // Remplacer les sauts de ligne multiples
+        .trim();
+    
+    console.log('Texte nettoyé pour analyse:', cleanedText.substring(0, 500));
+    
+    const profile = {
+        name: extractName(cleanedText),
+        currentJob: extractCurrentJob(cleanedText),
+        company: extractCompany(cleanedText),
+        location: extractLocation(cleanedText),
+        about: extractAboutSection(cleanedText),
+        experience: extractExperience(cleanedText),
+        education: extractEducation(cleanedText),
+        skills: extractSkills(cleanedText),
+        domain: null
+    };
+    
+    // Détecter le domaine professionnel
+    profile.domain = detectProfessionalDomainAdvanced(cleanedText, profile);
+    
+    // Construire la description finale
+    return buildStructuredDescription(profile);
+}
+
+// Extraction améliorée du nom complet
+function extractName(text) {
+    // Chercher au début du texte, avant les autres éléments
+    const lines = text.split('\n');
+    
+    for (let i = 0; i < Math.min(5, lines.length); i++) {
+        const line = lines[i].trim();
+        
+        // Ignorer les lignes avec des éléments LinkedIn spécifiques
+        if (line.includes('relation de') || line.includes('abonnés') || line.includes('connexions') || 
+            line.includes('Coordonnées') || line.length < 3) {
+            continue;
+        }
+        
+        // Chercher un nom qui ressemble à un nom de personne
+        const nameMatch = line.match(/^([A-Z][a-zA-Z\-]+(?:\s+[A-Z][a-zA-Z\-]+)*)\s*(?:🎯|👨|👩|⭐|🚀|📈|💼|🔥)?/);
+        if (nameMatch) {
+            const name = nameMatch[1].trim();
+            // Vérifier que c'est bien un nom (pas une entreprise)
+            if (name.length > 2 && name.length < 50 && !name.includes('UNIVERSITÉ') && 
+                !name.includes('CONSEIL') && !name.includes('GROUPE')) {
+                return name;
+            }
+        }
+    }
+    
+    return null;
+}
+
+// Extraction du poste actuel
+function extractCurrentJob(text) {
+    // Chercher après le nom, avant les coordonnées
+    const jobPatterns = [
+        /Ingénieure?\s+[a-zA-Z\s]+(?:et|&)\s+[a-zA-Z\s]+/i,
+        /([A-Z][a-z]+(?:e?ure?)\s+[a-zA-Z\s]+(?:et|&)\s+[a-zA-Z\s]+)/,
+        /([A-Z][^.!?]+(?:Formatrice|Consultante?|Directrice?|Manageuse?|Responsable)[^.!?]*)/,
+        /Je vous aide à[^.!?]+/
+    ];
+    
+    for (const pattern of jobPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            return match[0].trim();
+        }
+    }
+    
+    return null;
+}
+
+// Extraction de l'entreprise actuelle
+function extractCompany(text) {
+    // Chercher dans la section expérience ou après le titre
+    const companyPatterns = [
+        /THINK TWICE/,
+        /VALEUR AJOUTEE CONSEIL/,
+        /([A-Z][A-Z\s&]+CONSEIL)/,
+        /([A-Z][A-Z\s&]+GROUP)/,
+        /chez\s+([A-Z][a-zA-Z\s&]+)/,
+        /Entreprise:\s*([A-Z][a-zA-Z\s&]+)/
+    ];
+    
+    for (const pattern of companyPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            return match[1] || match[0];
+        }
+    }
+    
+    return null;
+}
+
+// Extraction de la localisation
+function extractLocation(text) {
+    const locationPatterns = [
+        /Aix-en-Provence,\s*Provence-Alpes-Côte d'Azur,\s*France/,
+        /(Aix-en-Provence[^,]*)/,
+        /Région de ([A-Z][a-zA-Z\s,\-]+)/,
+        /([A-Z][a-zA-Z\s\-]+),\s*France/
+    ];
+    
+    for (const pattern of locationPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            return match[0].trim();
+        }
+    }
+    
+    return null;
+}
+
+// Extraction de la section "À propos"
+function extractAboutSection(text) {
+    // Chercher la section d'informations détaillées
+    const aboutPatterns = [
+        /Vous maîtrisez les fondamentaux[^]+?(?=Compétences|Formation|Expérience|$)/,
+        /Infos\s+([\s\S]+?)(?=Compétences|Formation|Expérience|$)/,
+        /(?:À propos|About)\s+([\s\S]+?)(?=Compétences|Formation|Expérience|$)/i
+    ];
+    
+    for (const pattern of aboutPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            const about = match[0].trim();
+            // Limiter la longueur et nettoyer
+            return about.length > 1000 ? about.substring(0, 1000) + '...' : about;
+        }
+    }
+    
+    return null;
+}
+
+// Extraction de l'expérience
+function extractExperience(text) {
+    const expMatch = text.match(/Expérience\s+([\s\S]+?)(?=Formation|Compétences|Langues|$)/);
+    if (expMatch) {
+        const experience = expMatch[1].trim();
+        // Prendre les premiers postes les plus importants
+        const jobs = experience.split(/Logo de|Afficher/).slice(0, 3);
+        return jobs.join('\n').substring(0, 800);
+    }
+    return null;
+}
+
+// Extraction de la formation
+function extractEducation(text) {
+    const eduMatch = text.match(/Formation\s+([\s\S]+?)(?=Compétences|Langues|Recommandations|$)/);
+    if (eduMatch) {
+        return eduMatch[1].trim().substring(0, 400);
+    }
+    return null;
+}
+
+// Extraction des compétences
+function extractSkills(text) {
+    const skillsMatch = text.match(/Compétences principales\s+([^]+?)(?=Sélection|Formation|Expérience|$)/);
+    if (skillsMatch) {
+        return skillsMatch[1].trim().substring(0, 300);
+    }
+    return null;
+}
+
+// Détection avancée du domaine professionnel
+function detectProfessionalDomainAdvanced(text, profile) {
+    const lowerText = text.toLowerCase();
+    
+    // Domaines spécialisés avec plus de contexte
+    const advancedDomains = {
+        'ingénieur|ingénierie.*patrimonial|gestion.*patrimoine|transmission.*patrimoine': 'Ingénierie patrimoniale et gestion de patrimoine',
+        'avocat|lawyer|legal|droit|juridique|barreau': 'Droit et conseil juridique',
+        'notaire|notary|immobilier.*transaction|succession': 'Notariat et transactions immobilières',
+        'expert.*comptable|comptable|audit|fiscal|finance.*entreprise': 'Expertise comptable et conseil fiscal',
+        'consultant|conseil.*stratég|management|transformation': 'Conseil en entreprise et stratégie',
+        'formation.*profession|formateur|enseignant.*université': 'Formation professionnelle',
+        'médecin|doctor|santé|medical|health': 'Secteur médical',
+        'architecte|architect|construction|btp': 'Architecture et construction',
+        'marketing|communication|publicité|digital': 'Marketing et communication'
+    };
+    
+    // Analyser d'abord le titre/fonction
+    const jobText = (profile.currentJob || '').toLowerCase();
+    
+    for (const [keywords, domain] of Object.entries(advancedDomains)) {
+        const regex = new RegExp(keywords, 'i');
+        if (regex.test(jobText) || regex.test(lowerText)) {
+            return domain;
+        }
+    }
+    
+    return 'Conseil et accompagnement professionnel';
+}
+
+// Construction de la description structurée finale
+function buildStructuredDescription(profile) {
+    const sections = [];
+    
+    if (profile.name) {
+        sections.push(`👤 PROFESSIONNEL : ${profile.name}`);
+    }
+    
+    if (profile.currentJob) {
+        sections.push(`💼 FONCTION : ${profile.currentJob}`);
+    }
+    
+    if (profile.domain) {
+        sections.push(`🎯 DOMAINE D'EXPERTISE : ${profile.domain}`);
+    }
+    
+    if (profile.company) {
+        sections.push(`🏢 ENTREPRISE : ${profile.company}`);
+    }
+    
+    if (profile.location) {
+        sections.push(`📍 LOCALISATION : ${profile.location}`);
+    }
+    
+    if (profile.about) {
+        sections.push(`📝 PRÉSENTATION PROFESSIONNELLE :\n${profile.about}`);
+    }
+    
+    if (profile.skills) {
+        sections.push(`🔧 COMPÉTENCES CLÉS :\n${profile.skills}`);
+    }
+    
+    if (profile.experience) {
+        sections.push(`💡 EXPÉRIENCE (extraits) :\n${profile.experience}`);
+    }
+    
+    if (profile.education) {
+        sections.push(`🎓 FORMATION :\n${profile.education}`);
+    }
+    
+    sections.push(`\n🤖 CONTEXTE IA : Ces informations détaillées, extraites du profil LinkedIn complet, permettront à l'IA de classifier précisément les contacts selon leur relation professionnelle avec ce profil (clients, prospects, partenaires, prescripteurs, etc.).`);
+    
+    return sections.join('\n\n');
+}
+
+// Ancienne fonction remplacée par detectProfessionalDomainAdvanced
+
+// Fonction debounce pour limiter les appels
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// Modifier la fonction displayClassifiedContacts pour stocker les contacts
+const originalDisplayClassifiedContacts = displayClassifiedContacts;
+displayClassifiedContacts = function(contacts) {
+    // Stocker tous les contacts pour le filtrage
+    if (contacts && contacts.length > 0 && !allClassifiedContacts.length) {
+        allClassifiedContacts = [...contacts];
+        filteredContacts = [...contacts];
+    }
+    
+    // Appeler la fonction originale
+    originalDisplayClassifiedContacts(contacts);
+    
+    // Ajouter le compteur si ce n'est pas déjà fait
+    if (contacts && contacts.length > 0) {
+        updateContactsCounter(contacts.length, allClassifiedContacts.length);
+    }
+};
+</script>
+{% endblock %}

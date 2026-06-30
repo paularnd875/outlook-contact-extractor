@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 
 from app.auth import auth_router
 from app.contacts import contacts_router
+from app.ai_profiler import ai_router
+from app.enriched_classification import enriched_router
 from app.database import init_db
 
 # Charger les variables d'environnement
@@ -33,21 +35,45 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 # Inclusion des routers
 app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(contacts_router, prefix="/api", tags=["contacts"])
+app.include_router(ai_router, prefix="/api/ai", tags=["ai-profiler"])
+app.include_router(enriched_router, prefix="/api/ai", tags=["ai-enriched"])
 
 @app.on_event("startup")
 async def startup_event():
     """Initialisation de la base de données au démarrage"""
     await init_db()
 
+def _base_ctx(request: Request) -> dict:
+    """Contexte commun aux templates (dont le mode produit avec/sans IA)."""
+    from app.enriched_classification import CLASSIFICATION_ENABLED
+    return {"request": request, "classification_enabled": CLASSIFICATION_ENABLED}
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     """Page d'accueil de l'application"""
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("index.html", _base_ctx(request))
+
+@app.get("/api/config")
+async def get_config():
+    """Config produit : mode (extraction seule / + IA) et état du LLM (local ou serveur)."""
+    from app.classifier import ping
+    from app.enriched_classification import CLASSIFICATION_ENABLED
+    llm = await ping() if CLASSIFICATION_ENABLED else {"ok": None, "info": "classification désactivée"}
+    return {"classification_enabled": CLASSIFICATION_ENABLED, "llm": llm}
+
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Tableau de bord avec prévisualisation des contacts"""
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse("dashboard.html", _base_ctx(request))
+
+@app.get("/profils", response_class=HTMLResponse)
+async def profils(request: Request):
+    """Page de gestion des profils IA (uniquement si la classification est activée)"""
+    from app.enriched_classification import CLASSIFICATION_ENABLED
+    if not CLASSIFICATION_ENABLED:
+        return RedirectResponse(url="/dashboard", status_code=302)
+    return templates.TemplateResponse("profils.html", _base_ctx(request))
 
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc: HTTPException):

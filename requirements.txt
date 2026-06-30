@@ -14,3 +14,5 @@ beautifulsoup4==4.12.2
 lxml==4.9.3
 regex==2023.10.3
 email-validator==2.1.0
+itsdangerous==2.2.0
+greenlet==3.5.2

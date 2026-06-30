@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from typing import Optional, List
 import io
 import csv
@@ -17,20 +17,28 @@ contacts_router = APIRouter()
 
 @contacts_router.post("/extract")
 async def start_extraction(
+    request: Request,
     background_tasks: BackgroundTasks,
-    period_months: float = Query(default=1, ge=0.25, le=24, description="Période d'extraction en mois"),
+    period_months: float = Query(default=1, ge=0.25, le=120, description="Période d'extraction en mois"),
     db: AsyncSession = Depends(get_db)
 ):
     """Démarrer l'extraction des contacts"""
-    
+
     # Récupérer l'utilisateur depuis les tokens stockés
     from app.auth import user_tokens
-    
-    # Pour le MVP, prendre le premier utilisateur connecté
-    if user_tokens:
-        user_id = list(user_tokens.keys())[0]
-    else:
-        raise HTTPException(status_code=401, detail="Aucun utilisateur connecté")
+
+    # Utiliser le compte réellement connecté dans CETTE session navigateur
+    # (et non "le premier connecté", qui pourrait viser la mauvaise boîte mail)
+    user_id = request.session.get('user_id')
+    if not user_id or user_id not in user_tokens:
+        # Repli: s'il n'y a qu'un seul compte connecté, l'utiliser
+        if len(user_tokens) == 1:
+            user_id = next(iter(user_tokens))
+        else:
+            raise HTTPException(
+                status_code=401,
+                detail="Aucun compte connecté pour cette session. Reconnectez-vous avec la boîte mail à analyser."
+            )
     
     try:
         # Créer une session d'extraction
@@ -77,6 +85,31 @@ async def get_extraction_status(session_id: str, db: AsyncSession = Depends(get_
     
     return session.to_dict()
 
+@contacts_router.get("/sessions")
+async def get_user_sessions(db: AsyncSession = Depends(get_db)):
+    """Récupérer les sessions d'extraction de l'utilisateur connecté"""
+    
+    # Récupérer l'utilisateur depuis les tokens stockés
+    from app.auth import user_tokens
+    
+    if not user_tokens:
+        raise HTTPException(status_code=401, detail="Aucun utilisateur connecté")
+    
+    user_id = list(user_tokens.keys())[0]
+    
+    result = await db.execute(
+        select(ExtractionSession)
+        .where(ExtractionSession.user_id == user_id)
+        .order_by(ExtractionSession.date_debut.desc())
+        .limit(1)
+    )
+    session = result.scalar_one_or_none()
+    
+    if session:
+        return session.to_dict()
+    else:
+        return None
+
 @contacts_router.get("/contacts")
 async def get_contacts(
     session_id: str = Query(..., description="ID de la session d'extraction"),
@@ -84,6 +117,7 @@ async def get_contacts(
     limit: int = Query(default=50, ge=1, le=500),
     search: Optional[str] = Query(default=None, description="Recherche dans nom/email"),
     filter_type: Optional[str] = Query(default=None, description="Filtrer par type de contact"),
+    filter_classification: Optional[str] = Query(default=None, description="Filtrer par classification IA"),
     filter_validated: Optional[bool] = Query(default=None, description="Filtrer par validation"),
     sort_by: Optional[str] = Query(default="date_dernier_contact", description="Colonne de tri"),
     sort_order: Optional[str] = Query(default="desc", description="Ordre de tri"),
@@ -107,6 +141,9 @@ async def get_contacts(
         
         if filter_type:
             query = query.where(Contact.type_contact == filter_type)
+            
+        if filter_classification:
+            query = query.where(Contact.type_contact == filter_classification)
         
         if filter_validated is not None:
             query = query.where(Contact.valide == filter_validated)
@@ -202,7 +239,8 @@ async def export_contacts(
         # En-têtes
         headers = [
             'Nom', 'Prénom', 'Nom_Complet', 'Adresse_Mail', 
-            'Intitulé', 'Site_Web', 'Nom_Normalisé', 'Type_Contact',
+            'Intitulé', 'Site_Web', 'LinkedIn', 'Type_Contact',
+            'Classification_IA', 'Justification_Classification', 'Confiance_Classification',
             'Nombre_Emails', 'Date_Premier_Contact', 'Date_Dernier_Contact'
         ]
         writer.writerow(headers)
@@ -212,6 +250,16 @@ async def export_contacts(
             # Combiner le nom avec l'email pour la colonne "Nom"
             nom_avec_email = f"{contact.nom or ''} ({contact.email})" if contact.nom else contact.email
             
+            # Obtenir le nom de la classification IA pour l'export
+            classification_labels = {
+                'client': 'Client',
+                'prospect': 'Prospect',
+                'avocat': 'Avocat',
+                'autre': 'Autre',
+                'unknown': 'Non classé'
+            }
+            classification_ia = classification_labels.get(contact.classification, contact.classification or 'Non classé')
+            
             row = [
                 nom_avec_email,  # Nom avec email inclus
                 contact.prenom or '',
@@ -219,8 +267,11 @@ async def export_contacts(
                 contact.email,
                 contact.intitule or '',
                 contact.site_web or '',
-                contact.nom_normalise or '',
-                contact.type_contact,
+                contact.linkedin_url or '',
+                contact.type_contact or '',
+                classification_ia,  # Classification IA en français
+                contact.justification_classification or '',  # Justification de l'IA
+                f"{contact.confiance_classification}%" if contact.confiance_classification else '',  # Score confiance
                 contact.nombre_emails,
                 contact.date_premier_contact.strftime('%Y-%m-%d %H:%M:%S') if contact.date_premier_contact else '',
                 contact.date_dernier_contact.strftime('%Y-%m-%d %H:%M:%S') if contact.date_dernier_contact else ''
@@ -281,6 +332,71 @@ async def get_extraction_stats(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération des statistiques: {str(e)}")
+
+@contacts_router.post("/contacts/bulk-validate")
+async def bulk_validate_contacts(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """Validation en lot des contacts selon des critères"""
+    
+    try:
+        body = await request.json()
+        session_id = body.get('session_id')
+        validated = body.get('validated', True)
+        
+        if not session_id:
+            raise HTTPException(status_code=400, detail="session_id requis")
+        
+        # Construction de la requête de base
+        query = select(Contact).where(Contact.session_id == session_id)
+        
+        # Appliquer les filtres optionnels
+        if 'filter_type' in body and body['filter_type']:
+            query = query.where(Contact.type_contact == body['filter_type'])
+            
+        if 'filter_classification' in body and body['filter_classification']:
+            query = query.where(Contact.type_contact == body['filter_classification'])
+            
+        if 'filter_validated' in body and body['filter_validated'] is not None:
+            if body['filter_validated'] == 'true':
+                query = query.where(Contact.valide == True)
+            elif body['filter_validated'] == 'false':
+                query = query.where(Contact.valide == False)
+                
+        if 'search' in body and body['search']:
+            search_term = f"%{body['search']}%"
+            query = query.where(
+                or_(
+                    Contact.email.like(search_term),
+                    Contact.nom.like(search_term),
+                    Contact.prenom.like(search_term),
+                    Contact.nom_complet.like(search_term),
+                    Contact.intitule.like(search_term)
+                )
+            )
+        
+        # Récupérer les contacts correspondants
+        result = await db.execute(query)
+        contacts = result.scalars().all()
+        
+        # Mettre à jour le statut de validation
+        updated_count = 0
+        for contact in contacts:
+            contact.valide = validated
+            updated_count += 1
+        
+        await db.commit()
+        
+        return {
+            "message": f"{updated_count} contacts mis à jour",
+            "updated_count": updated_count,
+            "validated": validated
+        }
+        
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la validation en lot: {str(e)}")
 
 async def extract_contacts_task(session_id: str, user_id: str, period_months: float):
     """Tâche d'extraction des contacts en arrière-plan"""

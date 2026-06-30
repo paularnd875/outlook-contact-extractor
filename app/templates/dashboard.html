@@ -37,6 +37,10 @@
     .progress-extraction {
         height: 8px;
     }
+    
+    .gap-2 {
+        gap: 0.5rem !important;
+    }
 </style>
 {% endblock %}
 
@@ -58,9 +62,15 @@
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">
                     <i class="fas fa-play me-2"></i>
-                    Nouvelle extraction
+                    <span id="extraction-title">Nouvelle extraction</span>
                 </h5>
-                <span id="extraction-status-badge" class="badge bg-secondary">Prêt</span>
+                <div class="d-flex align-items-center gap-2">
+                    <button id="new-extraction-btn" class="btn btn-sm btn-outline-primary d-none">
+                        <i class="fas fa-plus me-1"></i>
+                        Nouvelle extraction
+                    </button>
+                    <span id="extraction-status-badge" class="badge bg-secondary">Prêt</span>
+                </div>
             </div>
             <div class="card-body">
                 <div id="extraction-form" class="">
@@ -74,6 +84,11 @@
                                 <option value="6">6 derniers mois</option>
                                 <option value="12">Dernière année</option>
                                 <option value="24">2 dernières années</option>
+                                <option value="36">3 dernières années</option>
+                                <option value="48">4 dernières années</option>
+                                <option value="60">5 dernières années</option>
+                                <option value="84">7 dernières années</option>
+                                <option value="120">10 dernières années (maximum)</option>
                             </select>
                         </div>
                         <div class="col-md-4">
@@ -176,6 +191,64 @@
     </div>
 </div>
 
+<!-- Statistiques de classification IA -->
+<div id="ai-stats-section" class="card mb-4 d-none">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="fas fa-brain me-2"></i>
+            Classification IA des Contacts
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-2">
+                <div class="text-center">
+                    <div class="badge bg-success fs-6" id="ai-client-count">0</div>
+                    <div class="small text-muted mt-1">Clients</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-center">
+                    <div class="badge bg-info fs-6" id="ai-prescripteur-count">0</div>
+                    <div class="small text-muted mt-1">Prescripteurs</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-center">
+                    <div class="badge bg-warning fs-6" id="ai-partenaire-count">0</div>
+                    <div class="small text-muted mt-1">Partenaires</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-center">
+                    <div class="badge bg-secondary fs-6" id="ai-personnel-count">0</div>
+                    <div class="small text-muted mt-1">Personnel</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-center">
+                    <div class="badge bg-dark fs-6" id="ai-autre-count">0</div>
+                    <div class="small text-muted mt-1">Autre</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-center">
+                    <div class="badge bg-light text-dark fs-6" id="ai-unknown-count">0</div>
+                    <div class="small text-muted mt-1">Non classifiés</div>
+                </div>
+            </div>
+        </div>
+        <div class="row mt-3">
+            <div class="col-12">
+                <a href="/profils" class="btn btn-primary btn-sm">
+                    <i class="fas fa-cog me-1"></i>
+                    Gérer les profils IA
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Liste des contacts -->
 <div id="contacts-section" class="card d-none">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -198,12 +271,12 @@
     <!-- Filtres et recherche -->
     <div class="card-body border-bottom">
         <div class="row g-3 align-items-end">
-            <div class="col-md-4">
-                <label for="search-input" class="form-label">Rechercher</label>
-                <input type="text" id="search-input" class="form-control" placeholder="Nom, email...">
-            </div>
             <div class="col-md-3">
-                <label for="type-filter" class="form-label">Type de contact</label>
+                <label for="search-input" class="form-label">Rechercher</label>
+                <input type="text" id="search-input" class="form-control" placeholder="Nom, email, titre...">
+            </div>
+            <div class="col-md-2">
+                <label for="type-filter" class="form-label">Type</label>
                 <select id="type-filter" class="form-select">
                     <option value="">Tous</option>
                     <option value="sender">Expéditeurs</option>
@@ -211,7 +284,19 @@
                     <option value="both">Les deux</option>
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
+                <label for="classification-filter" class="form-label">Classification IA</label>
+                <select id="classification-filter" class="form-select">
+                    <option value="">Toutes</option>
+                    <option value="client">Clients</option>
+                    <option value="prescripteur">Prescripteurs</option>
+                    <option value="partenaire">Partenaires</option>
+                    <option value="personnel">Personnel</option>
+                    <option value="autre">Autre</option>
+                    <option value="unknown">Non classé</option>
+                </select>
+            </div>
+            <div class="col-md-2">
                 <label for="validation-filter" class="form-label">Statut</label>
                 <select id="validation-filter" class="form-select">
                     <option value="">Tous</option>
@@ -219,11 +304,31 @@
                     <option value="false">À vérifier</option>
                 </select>
             </div>
-            <div class="col-md-2">
-                <button id="clear-filters-btn" class="btn btn-outline-secondary w-100">
-                    <i class="fas fa-times me-1"></i>
-                    Reset
-                </button>
+            <div class="col-md-3">
+                <div class="d-flex gap-2">
+                    <button id="clear-filters-btn" class="btn btn-outline-secondary">
+                        <i class="fas fa-times me-1"></i>
+                        Reset
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-check-double me-1"></i>
+                            Actions groupées
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="validateByClassification()">
+                                <i class="fas fa-check me-2"></i>Valider par classification
+                            </a></li>
+                            <li><a class="dropdown-item" href="#" onclick="invalidateByClassification()">
+                                <i class="fas fa-times me-2"></i>Invalider par classification
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" onclick="validateAllVisible()">
+                                <i class="fas fa-check-circle me-2"></i>Valider tous (visibles)
+                            </a></li>
+                        </ul>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -238,6 +343,7 @@
                     </th>
                     <th>Contact</th>
                     <th>Type</th>
+                    <th>Classification IA</th>
                     <th>Intitulé</th>
                     <th>Site web</th>
                     <th>Emails</th>
@@ -279,6 +385,7 @@ document.addEventListener('DOMContentLoaded', function() {
 function initializeDashboard() {
     // Event listeners
     document.getElementById('start-extraction-btn').addEventListener('click', startExtraction);
+    document.getElementById('new-extraction-btn').addEventListener('click', startNewExtraction);
     document.getElementById('export-btn').addEventListener('click', exportContacts);
     document.getElementById('validate-all-btn').addEventListener('click', validateAllContacts);
     document.getElementById('select-all-checkbox').addEventListener('change', toggleSelectAll);
@@ -287,7 +394,91 @@ function initializeDashboard() {
     document.getElementById('search-input').addEventListener('input', debounce(applyFilters, 300));
     document.getElementById('type-filter').addEventListener('change', applyFilters);
     document.getElementById('validation-filter').addEventListener('change', applyFilters);
+    document.getElementById('classification-filter').addEventListener('change', applyFilters);
     document.getElementById('clear-filters-btn').addEventListener('click', clearFilters);
+    
+    // Charger la dernière session automatiquement
+    loadLastSession();
+}
+
+async function loadLastSession() {
+    try {
+        // D'abord essayer de récupérer depuis la base de données
+        const response = await axios.get('/api/sessions');
+        const lastSession = response.data;
+        
+        if (lastSession) {
+            currentSessionId = lastSession.id;
+            localStorage.setItem('currentSessionId', currentSessionId);
+            
+            // Si l'extraction est en cours, reprendre le polling
+            if (lastSession.status === 'in_progress') {
+                document.getElementById('extraction-form').classList.add('d-none');
+                document.getElementById('extraction-progress').classList.remove('d-none');
+                document.getElementById('extraction-status-badge').className = 'badge bg-warning';
+                document.getElementById('extraction-status-badge').textContent = 'En cours';
+                
+                startExtractionPolling();
+            } else if (lastSession.status === 'completed') {
+                // Afficher les résultats de la dernière extraction
+                await loadStats();
+                await loadContacts();
+                
+                document.getElementById('stats-section').classList.remove('d-none');
+                document.getElementById('contacts-section').classList.remove('d-none');
+                
+                // Changer le titre et afficher le bouton nouvelle extraction
+                document.getElementById('extraction-title').textContent = 'Dernière extraction';
+                document.getElementById('extraction-form').classList.add('d-none');
+                document.getElementById('new-extraction-btn').classList.remove('d-none');
+                document.getElementById('extraction-status-badge').className = 'badge bg-success';
+                document.getElementById('extraction-status-badge').textContent = 'Terminé';
+            }
+        } else {
+            // Fallback: essayer de récupérer depuis localStorage
+            const storedSessionId = localStorage.getItem('currentSessionId');
+            if (storedSessionId) {
+                try {
+                    const statusResponse = await axios.get(`/api/extraction/${storedSessionId}/status`);
+                    currentSessionId = storedSessionId;
+                    
+                    const session = statusResponse.data;
+                    if (session.status === 'completed') {
+                        await loadStats();
+                        await loadContacts();
+                        document.getElementById('stats-section').classList.remove('d-none');
+                        document.getElementById('contacts-section').classList.remove('d-none');
+                        
+                        // Afficher l'interface de résultats
+                        document.getElementById('extraction-title').textContent = 'Dernière extraction';
+                        document.getElementById('extraction-form').classList.add('d-none');
+                        document.getElementById('new-extraction-btn').classList.remove('d-none');
+                        document.getElementById('extraction-status-badge').className = 'badge bg-success';
+                        document.getElementById('extraction-status-badge').textContent = 'Terminé';
+                    }
+                } catch (localError) {
+                    // Session localStorage invalide, la supprimer
+                    localStorage.removeItem('currentSessionId');
+                }
+            }
+        }
+    } catch (error) {
+        // Pas de session précédente ou erreur, c'est normal au premier lancement
+        console.log('Aucune session précédente ou erreur lors du chargement:', error);
+    }
+}
+
+function startNewExtraction() {
+    // Remettre l'interface en mode nouvelle extraction
+    document.getElementById('extraction-title').textContent = 'Nouvelle extraction';
+    document.getElementById('extraction-form').classList.remove('d-none');
+    document.getElementById('new-extraction-btn').classList.add('d-none');
+    document.getElementById('extraction-status-badge').className = 'badge bg-secondary';
+    document.getElementById('extraction-status-badge').textContent = 'Prêt';
+    
+    // Cacher les résultats précédents
+    document.getElementById('stats-section').classList.add('d-none');
+    document.getElementById('contacts-section').classList.add('d-none');
 }
 
 async function startExtraction() {
@@ -306,6 +497,9 @@ async function startExtraction() {
         });
         
         currentSessionId = response.data.session_id;
+        
+        // Sauvegarder la session dans localStorage
+        localStorage.setItem('currentSessionId', currentSessionId);
         
         // Démarrer le polling du statut
         startExtractionPolling();
@@ -346,14 +540,48 @@ function startExtractionPolling() {
 }
 
 function updateExtractionProgress(status) {
-    const progress = status.status === 'completed' ? 100 : 
-                    status.total_emails > 0 ? (status.total_contacts / status.total_emails * 100) : 0;
+    let progress = 0;
+    let detailsText = 'Préparation de l\'extraction...';
+    
+    if (status.status === 'completed') {
+        progress = 100;
+        detailsText = `Terminé : ${status.total_emails || 0} emails traités - ${status.total_contacts || 0} contacts trouvés`;
+    } else {
+        // Calcul de la progression basé sur plusieurs facteurs
+        if (status.total_folders > 0) {
+            // Progression principale basée sur les dossiers traités
+            const folderProgress = (status.processed_folders / status.total_folders) * 80; // 80% pour les dossiers
+            
+            // Progression secondaire basée sur les emails dans le dossier actuel
+            let emailProgress = 0;
+            if (status.estimated_total_emails > 0) {
+                emailProgress = (status.total_emails / status.estimated_total_emails) * 20; // 20% pour les emails
+            }
+            
+            progress = folderProgress + emailProgress;
+        } else if (status.estimated_total_emails > 0) {
+            // Si pas de dossiers, utiliser seulement les emails
+            progress = (status.total_emails / status.estimated_total_emails) * 100;
+        } else {
+            // Progression basique si pas d'estimation
+            progress = Math.min((status.total_emails || 0) / 50 * 100, 95); // Max 95% sans estimation
+        }
+        
+        // S'assurer que la progression ne dépasse pas 99% avant completion
+        progress = Math.min(progress, 99);
+        
+        // Texte détaillé avec étape actuelle
+        const currentStep = status.current_step || 'Traitement en cours...';
+        detailsText = `${currentStep} - ${status.total_emails || 0} emails traités, ${status.total_contacts || 0} contacts trouvés`;
+        
+        if (status.total_folders > 0) {
+            detailsText += ` (${status.processed_folders}/${status.total_folders} dossiers)`;
+        }
+    }
     
     document.getElementById('extraction-progress-bar').style.width = `${progress}%`;
     document.getElementById('extraction-progress-text').textContent = `${Math.round(progress)}%`;
-    
-    document.getElementById('extraction-details').textContent = 
-        `${status.total_emails || 0} emails traités - ${status.total_contacts || 0} contacts trouvés`;
+    document.getElementById('extraction-details').textContent = detailsText;
 }
 
 async function onExtractionCompleted() {
@@ -370,10 +598,11 @@ async function onExtractionCompleted() {
     document.getElementById('stats-section').classList.remove('d-none');
     document.getElementById('contacts-section').classList.remove('d-none');
     
-    // Permettre une nouvelle extraction
-    setTimeout(() => {
-        resetExtractionForm();
-    }, 3000);
+    // Afficher les résultats et le bouton nouvelle extraction
+    document.getElementById('extraction-title').textContent = 'Dernière extraction';
+    document.getElementById('extraction-form').classList.add('d-none');
+    document.getElementById('extraction-progress').classList.add('d-none');
+    document.getElementById('new-extraction-btn').classList.remove('d-none');
 }
 
 function onExtractionError(errorMessage) {
@@ -439,6 +668,7 @@ async function loadContacts(page = 1) {
         renderContactsTable(data.contacts);
         renderPagination(data.pagination);
         updateContactsInfo(data.pagination);
+        loadClassificationStats();
         
     } catch (error) {
         utils.handleApiError(error);
@@ -453,6 +683,10 @@ function renderContactsTable(contacts) {
         const row = createContactRow(contact);
         tbody.appendChild(row);
     });
+    
+    // Initialiser les tooltips Bootstrap pour les badges de classification
+    const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+    const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
 }
 
 function createContactRow(contact) {
@@ -482,6 +716,9 @@ function createContactRow(contact) {
             <span class="badge contact-type-badge ${getTypeBadgeClass(contact.type_contact)}">
                 ${getTypeLabel(contact.type_contact)}
             </span>
+        </td>
+        <td>
+            ${getClassificationBadge(contact.type_contact || 'unknown', contact)}
         </td>
         <td>
             ${contact.intitule || '-'}
@@ -523,6 +760,141 @@ function getTypeLabel(type) {
         case 'both': return 'Les deux';
         default: return 'Inconnu';
     }
+}
+
+function getClassificationBadge(classification, contact = null) {
+    const config = {
+        'client': { label: 'Client', class: 'bg-success' },
+        'prescripteur': { label: 'Prescripteur', class: 'bg-info' },
+        'partenaire': { label: 'Partenaire', class: 'bg-warning' },
+        'personnel': { label: 'Personnel', class: 'bg-secondary' },
+        'autre': { label: 'Autre', class: 'bg-dark' },
+        'unknown': { label: 'Non classé', class: 'bg-light text-dark' }
+    };
+    
+    const item = config[classification] || config['unknown'];
+    
+    // Générer la justification IA
+    const reasoning = generateClassificationReasoning(classification, contact);
+    
+    return `<span class="badge ${item.class}" 
+                  style="font-size: 0.8em; cursor: help;" 
+                  data-bs-toggle="tooltip" 
+                  data-bs-placement="top" 
+                  title="${reasoning}">
+                ${item.label}
+            </span>`;
+}
+
+function generateClassificationReasoning(classification, contact) {
+    if (!contact) {
+        return "Classification automatique basée sur l'analyse du contenu";
+    }
+    
+    const email = contact.email || '';
+    const domain = email.includes('@') ? email.split('@')[1].toLowerCase() : '';
+    const name = contact.nom_complet || `${contact.prenom || ''} ${contact.nom || ''}`.trim();
+    const title = contact.intitule || '';
+    const website = contact.site_web || '';
+    
+    switch(classification) {
+        case 'client':
+            if (domain.includes('company') || domain.includes('corp') || domain.includes('inc')) {
+                return `Classé comme client car le domaine "${domain}" indique une entreprise`;
+            } else if (title.toLowerCase().includes('directeur') || title.toLowerCase().includes('manager')) {
+                return `Classé comme client car le titre "${title}" suggère un décideur`;
+            } else {
+                return "Classé comme client basé sur l'analyse du profil professionnel";
+            }
+            
+        case 'prescripteur':
+            if (title.toLowerCase().includes('conseil') || title.toLowerCase().includes('consultant')) {
+                return `Classé comme prescripteur car le titre "${title}" indique un rôle de conseil`;
+            } else {
+                return "Classé comme prescripteur basé sur l'analyse du rôle professionnel";
+            }
+            
+        case 'partenaire':
+            if (website) {
+                return `Classé comme partenaire car présence d'un site web "${website}"`;
+            } else {
+                return "Classé comme partenaire basé sur l'analyse du profil d'affaires";
+            }
+            
+        case 'personnel':
+            if (domain.includes('gmail') || domain.includes('hotmail') || domain.includes('yahoo')) {
+                return `Classé comme contact personnel car utilise le domaine "${domain}"`;
+            } else {
+                return "Classé comme contact personnel basé sur l'analyse du domaine email";
+            }
+            
+        case 'autre':
+            if (email.toLowerCase().includes('no-reply') || email.toLowerCase().includes('noreply')) {
+                return `Classé comme autre car email automatique "${email}"`;
+            } else {
+                return "Classé comme autre - probable newsletter ou communication marketing";
+            }
+            
+        default:
+            return "Non classé - analyse automatique non concluante";
+    }
+}
+
+async function loadClassificationStats() {
+    if (!currentSessionId) return;
+    
+    try {
+        // Charger tous les contacts de la session pour calculer les stats
+        const response = await axios.get('/api/contacts', {
+            params: {
+                session_id: currentSessionId,
+                page: 1,
+                limit: 1000 // Charger tous les contacts
+            }
+        });
+        
+        const contacts = response.data.contacts;
+        
+        // Calculer les statistiques de classification
+        const stats = {
+            client: 0,
+            prescripteur: 0, 
+            partenaire: 0,
+            personnel: 0,
+            autre: 0,
+            unknown: 0
+        };
+        
+        contacts.forEach(contact => {
+            const classification = contact.type_contact || 'unknown';
+            if (stats.hasOwnProperty(classification)) {
+                stats[classification]++;
+            } else {
+                stats.unknown++;
+            }
+        });
+        
+        // Mettre à jour l'affichage
+        updateClassificationStats(stats);
+        
+        // Afficher la section si il y a des classifications
+        const totalClassified = Object.values(stats).reduce((sum, count) => sum + count, 0);
+        if (totalClassified > 0) {
+            document.getElementById('ai-stats-section').classList.remove('d-none');
+        }
+        
+    } catch (error) {
+        console.error('Erreur lors du chargement des statistiques de classification:', error);
+    }
+}
+
+function updateClassificationStats(stats) {
+    document.getElementById('ai-client-count').textContent = stats.client || 0;
+    document.getElementById('ai-prescripteur-count').textContent = stats.prescripteur || 0;
+    document.getElementById('ai-partenaire-count').textContent = stats.partenaire || 0;
+    document.getElementById('ai-personnel-count').textContent = stats.personnel || 0;
+    document.getElementById('ai-autre-count').textContent = stats.autre || 0;
+    document.getElementById('ai-unknown-count').textContent = stats.unknown || 0;
 }
 
 async function toggleContactValidation(contactId, validated) {
@@ -597,7 +969,8 @@ function applyFilters() {
     currentFilters = {
         search: document.getElementById('search-input').value || undefined,
         filter_type: document.getElementById('type-filter').value || undefined,
-        filter_validated: document.getElementById('validation-filter').value || undefined
+        filter_validated: document.getElementById('validation-filter').value || undefined,
+        filter_classification: document.getElementById('classification-filter').value || undefined
     };
     
     // Supprimer les valeurs undefined
@@ -614,6 +987,7 @@ function clearFilters() {
     document.getElementById('search-input').value = '';
     document.getElementById('type-filter').value = '';
     document.getElementById('validation-filter').value = '';
+    document.getElementById('classification-filter').value = '';
     currentFilters = {};
     loadContacts(1);
 }
@@ -664,6 +1038,85 @@ function toggleSelectAll() {
     checkboxes.forEach(checkbox => {
         checkbox.checked = selectAll;
     });
+}
+
+// Actions groupées
+async function validateByClassification() {
+    const classification = document.getElementById('classification-filter').value;
+    if (!classification) {
+        utils.showNotification('Veuillez d\'abord sélectionner une classification dans les filtres', 'warning');
+        return;
+    }
+    
+    const confirmed = confirm(`Valider tous les contacts classés comme "${getClassificationLabel(classification)}" ?`);
+    if (!confirmed) return;
+    
+    try {
+        const response = await axios.post('/api/contacts/bulk-validate', {
+            session_id: currentSessionId,
+            filter_classification: classification,
+            validated: true
+        });
+        
+        utils.showNotification(`${response.data.updated_count} contacts validés avec succès`, 'success');
+        loadContacts(currentPage);
+    } catch (error) {
+        utils.handleApiError(error);
+    }
+}
+
+async function invalidateByClassification() {
+    const classification = document.getElementById('classification-filter').value;
+    if (!classification) {
+        utils.showNotification('Veuillez d\'abord sélectionner une classification dans les filtres', 'warning');
+        return;
+    }
+    
+    const confirmed = confirm(`Marquer comme non validés tous les contacts classés comme "${getClassificationLabel(classification)}" ?`);
+    if (!confirmed) return;
+    
+    try {
+        const response = await axios.post('/api/contacts/bulk-validate', {
+            session_id: currentSessionId,
+            filter_classification: classification,
+            validated: false
+        });
+        
+        utils.showNotification(`${response.data.updated_count} contacts marqués comme non validés`, 'success');
+        loadContacts(currentPage);
+    } catch (error) {
+        utils.handleApiError(error);
+    }
+}
+
+async function validateAllVisible() {
+    const confirmed = confirm('Valider tous les contacts actuellement affichés ?');
+    if (!confirmed) return;
+    
+    try {
+        const response = await axios.post('/api/contacts/bulk-validate', {
+            session_id: currentSessionId,
+            ...currentFilters,
+            validated: true
+        });
+        
+        utils.showNotification(`${response.data.updated_count} contacts validés avec succès`, 'success');
+        loadContacts(currentPage);
+    } catch (error) {
+        utils.handleApiError(error);
+    }
+}
+
+function getClassificationLabel(classification) {
+    const labels = {
+        'client': 'Clients',
+        'prescripteur': 'Prescripteurs',
+        'partenaire': 'Partenaires',
+        'personnel': 'Personnel',
+        'autre': 'Autre',
+        'unknown': 'Non classés'
+    };
+    return labels[classification] || classification;
 }
 
 // Fonction utilitaire pour le debounce

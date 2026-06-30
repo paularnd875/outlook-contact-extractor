@@ -50,6 +50,7 @@ class ContactProcessor:
                 'nom_normalise': nom_normalise,
                 'intitule': self._clean_string(contact_data.get('intitule')),
                 'site_web': self._clean_url(contact_data.get('site_web')),
+                'linkedin_url': self._clean_url(contact_data.get('linkedin')),
                 'signature_complete': self._clean_string(contact_data.get('signature_complete'), max_length=1000),
                 'source_email_id': contact_data.get('source_email_id'),
                 'type_contact': contact_data.get('type_contact', 'unknown'),
@@ -249,6 +250,9 @@ class ContactProcessor:
             
             if not best_contact.site_web and duplicate.site_web:
                 best_contact.site_web = duplicate.site_web
+            
+            if not best_contact.linkedin_url and duplicate.linkedin_url:
+                best_contact.linkedin_url = duplicate.linkedin_url
             
             # Mettre à jour les dates
             if duplicate.date_premier_contact and (not best_contact.date_premier_contact or duplicate.date_premier_contact < best_contact.date_premier_contact):

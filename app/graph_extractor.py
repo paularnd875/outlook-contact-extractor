@@ -19,9 +19,14 @@ class GraphExtractor:
             'Content-Type': 'application/json'
         }
         self.session = None
+        self.owner_info = None  # Informations du propriétaire du compte
+        self.owner_email = None
+        self.owner_name = None
     
     async def __aenter__(self):
         self.session = httpx.AsyncClient(timeout=30.0)
+        # Initialiser automatiquement les informations du propriétaire
+        await self._initialize_owner_info()
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -33,6 +38,20 @@ class GraphExtractor:
         response = await self.session.get(f"{self.base_url}/me", headers=self.headers)
         response.raise_for_status()
         return response.json()
+    
+    async def _initialize_owner_info(self):
+        """Initialiser les informations du propriétaire du compte"""
+        try:
+            self.owner_info = await self.get_user_info()
+            self.owner_email = self.owner_info.get('mail') or self.owner_info.get('userPrincipalName', '').lower()
+            self.owner_name = self.owner_info.get('displayName', '')
+            
+            logger.info(f"Propriétaire identifié: {self.owner_name} ({self.owner_email})")
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de l'initialisation du propriétaire: {e}")
+            self.owner_email = None
+            self.owner_name = None
     
     async def extract_contacts(self, period_months: float = 1) -> AsyncGenerator[Dict, None]:
         """
@@ -205,6 +224,11 @@ class GraphExtractor:
             logger.warning(f"Email invalide ou manquant: {email_data}")
             return None
         
+        # NOUVEAU: Exclure le propriétaire du compte
+        if self.owner_email and email.lower() == self.owner_email.lower():
+            logger.debug(f"Email du propriétaire exclu: {email}")
+            return None
+        
         # Exclure certains domaines systèmes
         excluded_domains = ['noreply', 'no-reply', 'donotreply', 'mailer-daemon', 'postmaster']
         if any(domain in email.lower() for domain in excluded_domains):
@@ -215,7 +239,7 @@ class GraphExtractor:
         nom, prenom = self._parse_name(display_name)
         
         # Extraire signature et informations additionnelles du corps de l'email
-        signature_info = self._extract_signature_info(body_content, email)
+        signature_info = self._extract_signature_info(body_content, email, display_name)
         
         # Validation finale - s'assurer que l'email n'est jamais None
         final_email = email if email and email.strip() else None
@@ -277,13 +301,14 @@ class GraphExtractor:
             nom = ' '.join(parts[1:])
             return nom, prenom
     
-    def _extract_signature_info(self, body_content: str, email: str) -> Dict:
+    def _extract_signature_info(self, body_content: str, email: str, display_name: str = "") -> Dict:
         """
-        Extraire les informations de signature d'un email
+        Extraire les informations de signature d'un email avec l'extracteur intelligent
         
         Args:
             body_content: Contenu HTML/texte de l'email
             email: Adresse email du contact
+            display_name: Nom d'affichage du contact
             
         Returns:
             Dict: Informations extraites (title, website, signature)
@@ -292,122 +317,100 @@ class GraphExtractor:
         if not body_content:
             return {}
         
-        # Nettoyer le HTML d'abord
-        clean_text = re.sub(r'<[^>]+>', ' ', body_content)
-        clean_text = re.sub(r'&nbsp;', ' ', clean_text)
-        clean_text = re.sub(r'&[a-zA-Z0-9#]+;', ' ', clean_text)  # Enlever entités HTML
-        clean_text = ' '.join(clean_text.split())  # Normaliser espaces
-        
-        result = {}
-        
-        # Indicateurs de contenu marketing/spam à éviter
-        spam_indicators = [
-            'partnership', 'collaborate', 'meeting', 'discuss', 'opportunity',
-            'proposal', 'enhance', 'develop', 'promote', 'market', 'debug',
-            'margins', 'revenue', 'innovative', 'cutting-edge', 'strategies',
-            'Dear Partner', 'Business Development Manager', 'when can I call',
-            'would be a good time', 'available for', 'interested in',
-            'promptly', 'significantly', 'transparently', 'judiciously',
-            'fungibly', 'hyperscale', 'omnichann', 'bottom-up', 'front end',
-            'resource-maximizing', 'developmentally appropriate', 'principle centered'
-        ]
-        
-        # Compter les indicateurs de spam dans le texte complet
-        spam_count = sum(1 for indicator in spam_indicators if indicator.lower() in clean_text.lower())
-        
-        # Si le contenu est très spammy, ne pas extraire d'informations
-        if spam_count > 5:
-            logger.debug(f"Contenu trop spammy ({spam_count} indicateurs), ignoré")
+        # Vérifier si la signature appartient au propriétaire du compte
+        if self._is_owner_signature(body_content, email, display_name):
+            logger.debug(f"Signature du propriétaire détectée et exclue pour {email}")
             return {}
         
-        # Patterns pour les titres/fonctions professionnels (plus précis)
-        title_patterns = [
-            # Titres juridiques exacts
-            r'(?i)(?:^|\s|-)(?:maître|avocat[e]?|counsel|attorney|lawyer|barrister|solicitor)(?:\s|$|-)',
-            # Fonctions direction exactes
-            r'(?i)(?:^|\s)(?:directeur|directrice|director|président|présidente|president|ceo|cto|cfo|managing director|gérant)(?:\s|$)',
-            # Fonctions commerciales exactes
-            r'(?i)(?:^|\s)(?:manager|responsable|chef|partner|associé|fondateur|founder)(?:\s|$)',
-            # Fonctions techniques exactes
-            r'(?i)(?:^|\s)(?:consultant|expert|specialist|analyst|developer|engineer|architecte?)(?:\s|$)',
-        ]
+        # Utiliser le nouvel extracteur intelligent
+        from app.smart_signature_extractor import SmartSignatureExtractor
         
-        # Rechercher les titres en évitant le contenu marketing
-        for pattern in title_patterns:
-            matches = re.finditer(pattern, clean_text)
-            for match in matches:
-                # Extraire un contexte limité autour du titre
-                start = max(0, match.start() - 30)
-                end = min(len(clean_text), match.end() + 30)
-                context = clean_text[start:end].strip()
-                
-                # Vérifier que ce contexte n'est pas marketing
-                context_spam_count = sum(1 for indicator in spam_indicators if indicator.lower() in context.lower())
-                
-                if context_spam_count == 0 and len(context) < 100:
-                    # Extraire juste la partie pertinente
-                    words = context.split()
-                    title_words = []
-                    
-                    # Trouver le mot-clé du titre et prendre quelques mots autour
-                    for i, word in enumerate(words):
-                        if re.search(pattern, word, re.IGNORECASE):
-                            # Prendre le mot du titre et quelques mots avant/après
-                            start_idx = max(0, i - 2)
-                            end_idx = min(len(words), i + 3)
-                            title_words = words[start_idx:end_idx]
-                            break
-                    
-                    if title_words:
-                        clean_title = ' '.join(title_words).strip()
-                        # Filtrer les titres trop longs ou suspects
-                        if len(clean_title) < 50 and not any(spam in clean_title.lower() for spam in spam_indicators):
-                            result['title'] = clean_title
-                            break
-            
-            if result.get('title'):
-                break
+        extractor = SmartSignatureExtractor()
+        professional_info = extractor.extract_professional_info(body_content, email)
         
-        # Si pas de titre trouvé, chercher dans les lignes courtes de fin d'email (signatures)
-        if not result.get('title'):
-            lines = clean_text.split('\n')
-            # Prendre les dernières lignes (signatures typiques)
-            for line in lines[-10:]:
-                line = line.strip()
-                if (len(line) < 80 and 
-                    any(title_word in line.lower() for title_word in 
-                        ['directeur', 'manager', 'avocat', 'consultant', 'président', 'responsable', 'chef', 'partner']) and
-                    not any(spam in line.lower() for spam in spam_indicators)):
-                    result['title'] = line
-                    break
+        # Mapper vers le format attendu
+        result = {}
+        if professional_info.get('title'):
+            result['title'] = professional_info['title']
+        if professional_info.get('website'):
+            result['website'] = professional_info['website']
+        if professional_info.get('linkedin'):
+            result['linkedin'] = professional_info['linkedin']
+        if professional_info.get('signature'):
+            result['signature'] = professional_info['signature']
         
-        # Extraire les sites web (amélioré)
-        website_pattern = r'https?://(?!(?:unsubscribe|tracking|pixel|analytics))[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*'
-        website_matches = re.findall(website_pattern, clean_text)
-        
-        if website_matches:
-            for website in website_matches:
-                if not any(exclude in website.lower() for exclude in 
-                          ['unsubscribe', 'tracking', 'pixel', 'analytics', 'marketing', 'substack']):
-                    result['website'] = website
-                    break
-        
-        # Stocker une signature nettoyée très limitée
-        if clean_text and spam_count < 3:
-            # Prendre juste les premières lignes non-marketing
-            signature_lines = []
-            for line in clean_text.split('\n')[:5]:
-                line = line.strip()
-                if (line and len(line) < 100 and 
-                    not any(spam in line.lower() for spam in spam_indicators)):
-                    signature_lines.append(line)
-                    if len(signature_lines) >= 3:
-                        break
-            
-            if signature_lines:
-                result['signature'] = ' | '.join(signature_lines)[:200]
+        # Log de la qualité d'extraction pour debugging
+        if professional_info:
+            quality_scores = extractor.analyze_extraction_quality(professional_info)
+            if any(score < 0.5 for score in quality_scores.values()):
+                logger.debug(f"Qualité d'extraction faible pour {email}: {quality_scores}")
         
         return result
+    
+    def _is_owner_signature(self, body_content: str, email: str, display_name: str) -> bool:
+        """
+        Détecter si une signature appartient au propriétaire du compte
+        
+        Args:
+            body_content: Contenu de l'email
+            email: Email du contact
+            display_name: Nom d'affichage du contact
+            
+        Returns:
+            bool: True si c'est la signature du propriétaire
+        """
+        
+        if not self.owner_name or not self.owner_email:
+            return False
+        
+        # Convertir en minuscules pour comparaison
+        body_lower = body_content.lower()
+        owner_name_lower = self.owner_name.lower()
+        owner_email_lower = self.owner_email.lower()
+        display_name_lower = display_name.lower()
+        
+        # 1. Vérifier si l'email du propriétaire apparaît dans la signature
+        if owner_email_lower in body_lower:
+            logger.debug(f"Email propriétaire trouvé dans signature: {self.owner_email}")
+            return True
+        
+        # 2. Vérifier si le nom du propriétaire apparaît dans la signature
+        if owner_name_lower and len(owner_name_lower.strip()) > 2:
+            # Séparer le nom en parties pour une détection plus flexible
+            owner_name_parts = owner_name_lower.split()
+            if len(owner_name_parts) >= 2:
+                # Vérifier si au moins 2 parties du nom sont présentes
+                found_parts = sum(1 for part in owner_name_parts if len(part) > 2 and part in body_lower)
+                if found_parts >= 2:
+                    logger.debug(f"Nom propriétaire trouvé dans signature: {self.owner_name}")
+                    return True
+        
+        # 3. Vérifier si le display_name correspond au propriétaire
+        if display_name_lower and owner_name_lower:
+            # Calculer la similarité entre les noms
+            from difflib import SequenceMatcher
+            similarity = SequenceMatcher(None, display_name_lower, owner_name_lower).ratio()
+            if similarity > 0.8:  # 80% de similarité
+                logger.debug(f"Nom similaire détecté: {display_name} ≈ {self.owner_name}")
+                return True
+        
+        # 4. Détecter les patterns typiques d'auto-signature (emails envoyés)
+        auto_signature_patterns = [
+            r'sent from my iphone',
+            r'sent from my ipad', 
+            r'sent from my samsung',
+            r'envoyé depuis mon iphone',
+            r'envoyé depuis mon ipad',
+            r'get outlook for',
+            r'obtenir outlook pour'
+        ]
+        
+        for pattern in auto_signature_patterns:
+            if re.search(pattern, body_lower):
+                logger.debug(f"Pattern auto-signature détecté: {pattern}")
+                return True
+        
+        return False
     
     def _is_valid_email(self, email: str) -> bool:
         """Valider une adresse email"""

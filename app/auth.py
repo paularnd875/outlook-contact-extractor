@@ -103,6 +103,9 @@ async def auth_callback(request: Request, code: str = None, state: str = None, e
             'expires_at': datetime.now() + timedelta(seconds=token_result.get('expires_in', 3600))
         }
         
+        # Stocker l'user_id dans la session pour le statut
+        request.session['user_id'] = user_id
+        
         # Rediriger vers le tableau de bord
         return RedirectResponse(url="/dashboard", status_code=302)
         
@@ -116,10 +119,37 @@ async def get_current_user(token: str = None):
         raise HTTPException(status_code=401, detail="Token manquant")
     
     try:
-        user_info = await get_user_info(token)
+        user_info = await get_full_user_info(token)
         return {"user": user_info, "status": "authenticated"}
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Token invalide: {str(e)}")
+
+@auth_router.get("/status")
+async def get_auth_status(request: Request):
+    """Vérifier si l'utilisateur est connecté et récupérer ses infos"""
+    # Récupérer l'user_id depuis la session
+    user_id = request.session.get('user_id')
+    if not user_id:
+        return {"authenticated": False}
+    
+    # Vérifier si l'utilisateur a un token valide
+    user_data = user_tokens.get(user_id)
+    if not user_data:
+        return {"authenticated": False}
+    
+    # Vérifier l'expiration du token
+    if datetime.now() >= user_data['expires_at']:
+        return {"authenticated": False}
+    
+    try:
+        user_info = await get_full_user_info(user_data['access_token'])
+        return {
+            "authenticated": True, 
+            "user": user_info
+        }
+    except Exception as e:
+        print(f"Erreur lors de la récupération des infos utilisateur: {e}")
+        return {"authenticated": False}
 
 @auth_router.post("/logout")
 async def logout(request: Request):
@@ -128,7 +158,7 @@ async def logout(request: Request):
     return {"message": "Déconnexion réussie"}
 
 async def get_user_info(access_token: str) -> str:
-    """Récupérer les informations utilisateur depuis Microsoft Graph"""
+    """Récupérer l'ID utilisateur depuis Microsoft Graph"""
     headers = {
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'application/json'
@@ -146,15 +176,55 @@ async def get_user_info(access_token: str) -> str:
         user_data = response.json()
         return user_data.get('id', user_data.get('userPrincipalName'))
 
+async def get_full_user_info(access_token: str) -> dict:
+    """Récupérer les informations complètes de l'utilisateur depuis Microsoft Graph"""
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json'
+    }
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f'{GRAPH_API_ENDPOINT}/me', headers=headers)
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code, 
+                detail=f"Erreur lors de la récupération des informations utilisateur: {response.text}"
+            )
+        
+        user_data = response.json()
+        return {
+            'id': user_data.get('id'),
+            'email': user_data.get('mail', user_data.get('userPrincipalName')),
+            'display_name': user_data.get('displayName'),
+            'first_name': user_data.get('givenName'),
+            'last_name': user_data.get('surname')
+        }
+
 def get_user_token(user_id: str) -> Optional[str]:
-    """Récupérer le token d'un utilisateur"""
+    """Récupérer le token d'un utilisateur, avec rafraîchissement automatique si expiré."""
     user_data = user_tokens.get(user_id)
     if not user_data:
         return None
-    
-    # Vérifier l'expiration
-    if datetime.now() >= user_data['expires_at']:
-        # En production, implémenter le refresh token
+
+    # Token encore valide (marge de sécurité de 60 s)
+    if datetime.now() < user_data['expires_at'] - timedelta(seconds=60):
+        return user_data['access_token']
+
+    # Token expiré -> tenter un rafraîchissement via le refresh token
+    refresh_token = user_data.get('refresh_token')
+    if not refresh_token:
         return None
-    
-    return user_data['access_token']
+    try:
+        app = msal_manager.get_msal_app()
+        result = app.acquire_token_by_refresh_token(refresh_token, scopes=SCOPES)
+        if result and 'access_token' in result:
+            user_tokens[user_id] = {
+                'access_token': result['access_token'],
+                'refresh_token': result.get('refresh_token', refresh_token),
+                'expires_at': datetime.now() + timedelta(seconds=result.get('expires_in', 3600))
+            }
+            return result['access_token']
+    except Exception:
+        return None
+    return None

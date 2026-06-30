@@ -29,6 +29,7 @@ class Contact(Base):
     nom_normalise = Column(String, index=True, nullable=True)
     intitule = Column(String, nullable=True)
     site_web = Column(String, nullable=True)
+    linkedin_url = Column(String, nullable=True)
     signature_complete = Column(Text, nullable=True)
     source_email_id = Column(String, nullable=True)  # ID de l'email source
     date_premier_contact = Column(DateTime, default=datetime.utcnow)
@@ -37,6 +38,11 @@ class Contact(Base):
     type_contact = Column(String, default="unknown")  # "sender", "recipient", "both"
     valide = Column(Boolean, default=True)  # Pour validation manuelle
     session_id = Column(String, nullable=True, index=True)  # Pour isoler les sessions
+    
+    # Colonnes pour classification IA
+    classification = Column(String, nullable=True)  # "client", "prospect", "avocat", "autre"
+    justification_classification = Column(Text, nullable=True)  # Explication de l'IA
+    confiance_classification = Column(Integer, nullable=True)  # Score 0-100
     
     # Contrainte unique: même email autorisé dans différentes sessions
     __table_args__ = (UniqueConstraint('email', 'session_id', name='unique_email_per_session'),)
@@ -52,11 +58,15 @@ class Contact(Base):
             "nom_normalise": self.nom_normalise,
             "intitule": self.intitule,
             "site_web": self.site_web,
+            "linkedin_url": self.linkedin_url,
             "date_premier_contact": self.date_premier_contact.isoformat() if self.date_premier_contact else None,
             "date_dernier_contact": self.date_dernier_contact.isoformat() if self.date_dernier_contact else None,
             "nombre_emails": self.nombre_emails,
             "type_contact": self.type_contact,
-            "valide": self.valide
+            "valide": self.valide,
+            "classification": self.classification,
+            "justification_classification": self.justification_classification,
+            "confiance_classification": self.confiance_classification
         }
 
 class ExtractionSession(Base):
@@ -69,8 +79,12 @@ class ExtractionSession(Base):
     date_debut = Column(DateTime, default=datetime.utcnow)
     date_fin = Column(DateTime, nullable=True)
     status = Column(String, default="in_progress")  # in_progress, completed, error
-    total_emails = Column(Integer, default=0)
-    total_contacts = Column(Integer, default=0)
+    total_emails = Column(Integer, default=0)  # Nombre d'emails traités
+    total_contacts = Column(Integer, default=0)  # Nombre de contacts trouvés
+    estimated_total_emails = Column(Integer, default=0)  # Estimation du total d'emails à traiter
+    processed_folders = Column(Integer, default=0)  # Nombre de dossiers traités
+    total_folders = Column(Integer, default=0)  # Nombre total de dossiers
+    current_step = Column(String, default="")  # Étape actuelle
     periode_debut = Column(DateTime, nullable=True)
     periode_fin = Column(DateTime, nullable=True)
     erreur_message = Column(Text, nullable=True)
@@ -85,6 +99,10 @@ class ExtractionSession(Base):
             "status": self.status,
             "total_emails": self.total_emails,
             "total_contacts": self.total_contacts,
+            "estimated_total_emails": self.estimated_total_emails,
+            "processed_folders": self.processed_folders,
+            "total_folders": self.total_folders,
+            "current_step": self.current_step,
             "periode_debut": self.periode_debut.isoformat() if self.periode_debut else None,
             "periode_fin": self.periode_fin.isoformat() if self.periode_fin else None
         }

@@ -183,3 +183,5 @@ temp/
 # Backup files
 *.bak
 *.backup
+# Données clients exportées (ne jamais committer)
+*.csv
