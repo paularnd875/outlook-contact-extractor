@@ -73,20 +73,65 @@ class GraphExtractor:
         
         logger.info(f"Extraction des contacts du {start_date} au {end_date}")
         
-        # Extraire les emails reçus et envoyés
-        async for contact in self._extract_from_folder("inbox", start_date, end_date):
+        # Scan de TOUTE la boîte via /me/messages : couvre TOUS les dossiers,
+        # y compris les SOUS-DOSSIERS imbriqués et l'archive (que le parcours
+        # dossier-par-dossier de premier niveau manquait).
+        async for contact in self._extract_all_messages(start_date, end_date):
             yield contact
-            
-        async for contact in self._extract_from_folder("sentitems", start_date, end_date):
-            yield contact
-            
-        # Traiter d'autres dossiers si nécessaire
-        folders = await self._get_mail_folders()
-        for folder in folders:
-            if folder['displayName'].lower() not in ['inbox', 'sent items', 'deleted items', 'drafts']:
-                async for contact in self._extract_from_folder(folder['id'], start_date, end_date):
-                    yield contact
     
+    async def _extract_all_messages(self, start_date: datetime, end_date: datetime) -> AsyncGenerator[Dict, None]:
+        """
+        Extraire les contacts de TOUS les messages de la boîte (tous dossiers,
+        sous-dossiers et archive inclus) via /me/messages.
+        """
+        start_iso = start_date.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        end_iso = end_date.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+
+        select_fields = 'id,subject,from,toRecipients,ccRecipients,bccRecipients,receivedDateTime'
+        if not self.light:
+            select_fields += ',body'
+
+        params = {
+            '$filter': f"receivedDateTime ge {start_iso} and receivedDateTime le {end_iso}",
+            '$select': select_fields,
+            '$top': 100,
+        }
+        next_url = f"{self.base_url}/me/messages"
+        page = 0
+
+        while next_url:
+            try:
+                response = await self.session.get(
+                    next_url, headers=self.headers,
+                    params=params if '?' not in next_url else None
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                messages = data.get('value', [])
+                page += 1
+                logger.info(f"Page {page}: {len(messages)} messages (toute la boîte)")
+
+                for message in messages:
+                    async for contact in self._extract_contacts_from_message(message, 'all'):
+                        yield contact
+
+                next_url = data.get('@odata.nextLink')
+                params = None
+                await asyncio.sleep(0.05)
+
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429:
+                    retry_after = int(e.response.headers.get('Retry-After', 60))
+                    logger.warning(f"Rate limited, attente de {retry_after}s")
+                    await asyncio.sleep(retry_after)
+                    continue
+                logger.error(f"Erreur HTTP scan boîte: {e}")
+                break
+            except Exception as e:
+                logger.error(f"Erreur scan boîte: {e}")
+                break
+
     async def _get_mail_folders(self) -> List[Dict]:
         """Récupérer la liste des dossiers de messagerie"""
         try:
