@@ -11,7 +11,10 @@ logger = logging.getLogger(__name__)
 class GraphExtractor:
     """Extracteur de contacts via Microsoft Graph API"""
     
-    def __init__(self, access_token: str):
+    def __init__(self, access_token: str, light: bool = False):
+        # light=True : extraction "carnet d'adresses" légère (en-têtes seuls, sans corps
+        # d'email ni analyse de signature) -> beaucoup plus rapide et robuste (offre gratuite).
+        self.light = light
         self.access_token = access_token
         self.base_url = "https://graph.microsoft.com/v1.0"
         self.headers = {
@@ -114,11 +117,17 @@ class GraphExtractor:
         start_iso = start_date.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
         end_iso = end_date.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
         
+        # Champs récupérés : en mode léger on NE télécharge PAS le corps des mails
+        # (le corps servait uniquement à l'analyse de signature, lourde en mémoire).
+        select_fields = 'id,subject,from,toRecipients,ccRecipients,bccRecipients,receivedDateTime'
+        if not self.light:
+            select_fields += ',body'
+
         # Paramètres de la requête
         params = {
             '$filter': f"receivedDateTime ge {start_iso} and receivedDateTime le {end_iso}",
-            '$select': 'id,subject,from,toRecipients,ccRecipients,bccRecipients,receivedDateTime,body',
-            '$top': 50  # Traiter par batch de 50
+            '$select': select_fields,
+            '$top': 100  # Traiter par batch de 100 (moins d'allers-retours)
         }
         
         next_url = f"{self.base_url}/me/mailFolders/{folder_id}/messages"

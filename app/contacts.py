@@ -432,7 +432,10 @@ async def extract_contacts_task(session_id: str, user_id: str, period_months: fl
             
             logger.info(f"Démarrage extraction pour session {session_id}")
             
-            async with GraphExtractor(access_token) as extractor:
+            # Mode léger (en-têtes seuls) quand la classification IA est désactivée :
+            # extraction "carnet d'adresses" rapide et robuste, sans télécharger les corps.
+            from app.enriched_classification import CLASSIFICATION_ENABLED
+            async with GraphExtractor(access_token, light=not CLASSIFICATION_ENABLED) as extractor:
                 processor = ContactProcessor(db, session_id)
                 
                 # Extraire les contacts
