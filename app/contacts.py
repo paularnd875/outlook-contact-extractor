@@ -482,7 +482,7 @@ async def extract_contacts_task(session_id: str, user_id: str, period_months: fl
             logger.info(f"Extraction terminée: {processed_emails} emails, {total_contacts} contacts")
             
         except Exception as e:
-            logger.error(f"Erreur globale extraction: {e}")
+            logger.error(f"Erreur globale extraction: {e}", exc_info=True)
             # Marquer comme erreur
             if extraction_session:
                 try:

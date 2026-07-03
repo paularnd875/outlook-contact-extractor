@@ -126,10 +126,15 @@ class GraphExtractor:
                     logger.warning(f"Rate limited, attente de {retry_after}s")
                     await asyncio.sleep(retry_after)
                     continue
-                logger.error(f"Erreur HTTP scan boîte: {e}")
+                body = ""
+                try:
+                    body = e.response.text[:400]
+                except Exception:
+                    pass
+                logger.error(f"Erreur HTTP scan boîte: {e.response.status_code} - {body}")
                 break
             except Exception as e:
-                logger.error(f"Erreur scan boîte: {e}")
+                logger.error(f"Erreur scan boîte ({type(e).__name__}): {e}")
                 break
 
     async def _get_mail_folders(self) -> List[Dict]:

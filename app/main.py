@@ -11,6 +11,7 @@ from app.auth import auth_router
 from app.contacts import contacts_router
 from app.ai_profiler import ai_router
 from app.enriched_classification import enriched_router
+from app.diag import diag_router, setup_log_capture
 from app.database import init_db
 
 # Charger les variables d'environnement
@@ -37,10 +38,12 @@ app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(contacts_router, prefix="/api", tags=["contacts"])
 app.include_router(ai_router, prefix="/api/ai", tags=["ai-profiler"])
 app.include_router(enriched_router, prefix="/api/ai", tags=["ai-enriched"])
+app.include_router(diag_router, prefix="/api", tags=["diag"])
 
 @app.on_event("startup")
 async def startup_event():
     """Initialisation de la base de données au démarrage"""
+    setup_log_capture()
     await init_db()
 
 def _base_ctx(request: Request) -> dict:
