@@ -84,7 +84,11 @@ class GraphExtractor:
     
     async def _walk_folder(self, folder: Dict, start_date: datetime, end_date: datetime) -> AsyncGenerator[Dict, None]:
         """Extraire un dossier puis, récursivement, tous ses sous-dossiers."""
-        name = (folder.get('displayName') or '').lower()
+        display = folder.get('displayName') or '?'
+        total = folder.get('totalItemCount', '?')
+        children = folder.get('childFolderCount', 0)
+        logger.info(f"DOSSIER '{display}' : {total} items au total, {children} sous-dossiers")
+        name = display.lower()
         skip = ('deleted items', 'éléments supprimés', 'drafts', 'brouillons')
         if name not in skip:
             async for contact in self._extract_from_folder(folder['id'], start_date, end_date):
@@ -101,7 +105,7 @@ class GraphExtractor:
             response = await self.session.get(
                 f"{self.base_url}/me/mailFolders",
                 headers=self.headers,
-                params={'$top': 200, '$select': 'id,displayName,childFolderCount'}
+                params={'$top': 200, '$select': 'id,displayName,childFolderCount,totalItemCount'}
             )
             response.raise_for_status()
             return response.json().get('value', [])
@@ -115,7 +119,7 @@ class GraphExtractor:
             response = await self.session.get(
                 f"{self.base_url}/me/mailFolders/{folder_id}/childFolders",
                 headers=self.headers,
-                params={'$top': 200, '$select': 'id,displayName,childFolderCount'}
+                params={'$top': 200, '$select': 'id,displayName,childFolderCount,totalItemCount'}
             )
             response.raise_for_status()
             return response.json().get('value', [])
