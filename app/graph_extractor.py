@@ -73,81 +73,54 @@ class GraphExtractor:
         
         logger.info(f"Extraction des contacts du {start_date} au {end_date}")
         
-        # Scan de TOUTE la boîte via /me/messages : couvre TOUS les dossiers,
-        # y compris les SOUS-DOSSIERS imbriqués et l'archive (que le parcours
-        # dossier-par-dossier de premier niveau manquait).
-        async for contact in self._extract_all_messages(start_date, end_date):
-            yield contact
+        # Parcours de TOUS les dossiers ET de leurs sous-dossiers (récursif).
+        # NB: /me/messages s'est révélé incomplet sur certaines boîtes (ne renvoyait
+        # que quelques messages) -> on interroge chaque dossier, ce qui est fiable.
+        root_folders = await self._get_mail_folders()
+        logger.info(f"{len(root_folders)} dossiers racine détectés")
+        for folder in root_folders:
+            async for contact in self._walk_folder(folder, start_date, end_date):
+                yield contact
     
-    async def _extract_all_messages(self, start_date: datetime, end_date: datetime) -> AsyncGenerator[Dict, None]:
-        """
-        Extraire les contacts de TOUS les messages de la boîte (tous dossiers,
-        sous-dossiers et archive inclus) via /me/messages.
-        """
-        start_iso = start_date.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
-        end_iso = end_date.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
-
-        select_fields = 'id,subject,from,toRecipients,ccRecipients,bccRecipients,receivedDateTime'
-        if not self.light:
-            select_fields += ',body'
-
-        params = {
-            '$filter': f"receivedDateTime ge {start_iso} and receivedDateTime le {end_iso}",
-            '$select': select_fields,
-            '$top': 100,
-        }
-        next_url = f"{self.base_url}/me/messages"
-        page = 0
-
-        while next_url:
-            try:
-                response = await self.session.get(
-                    next_url, headers=self.headers,
-                    params=params if '?' not in next_url else None
-                )
-                response.raise_for_status()
-                data = response.json()
-
-                messages = data.get('value', [])
-                page += 1
-                logger.info(f"Page {page}: {len(messages)} messages (toute la boîte)")
-
-                for message in messages:
-                    async for contact in self._extract_contacts_from_message(message, 'all'):
-                        yield contact
-
-                next_url = data.get('@odata.nextLink')
-                params = None
-                await asyncio.sleep(0.05)
-
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 429:
-                    retry_after = int(e.response.headers.get('Retry-After', 60))
-                    logger.warning(f"Rate limited, attente de {retry_after}s")
-                    await asyncio.sleep(retry_after)
-                    continue
-                body = ""
-                try:
-                    body = e.response.text[:400]
-                except Exception:
-                    pass
-                logger.error(f"Erreur HTTP scan boîte: {e.response.status_code} - {body}")
-                break
-            except Exception as e:
-                logger.error(f"Erreur scan boîte ({type(e).__name__}): {e}")
-                break
+    async def _walk_folder(self, folder: Dict, start_date: datetime, end_date: datetime) -> AsyncGenerator[Dict, None]:
+        """Extraire un dossier puis, récursivement, tous ses sous-dossiers."""
+        name = (folder.get('displayName') or '').lower()
+        skip = ('deleted items', 'éléments supprimés', 'drafts', 'brouillons')
+        if name not in skip:
+            async for contact in self._extract_from_folder(folder['id'], start_date, end_date):
+                yield contact
+        # Descendre dans les sous-dossiers (récursif)
+        if folder.get('childFolderCount', 0):
+            for child in await self._get_child_folders(folder['id']):
+                async for contact in self._walk_folder(child, start_date, end_date):
+                    yield contact
 
     async def _get_mail_folders(self) -> List[Dict]:
-        """Récupérer la liste des dossiers de messagerie"""
+        """Récupérer TOUS les dossiers de premier niveau (avec nb de sous-dossiers)."""
         try:
             response = await self.session.get(
                 f"{self.base_url}/me/mailFolders",
-                headers=self.headers
+                headers=self.headers,
+                params={'$top': 200, '$select': 'id,displayName,childFolderCount'}
             )
             response.raise_for_status()
             return response.json().get('value', [])
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des dossiers: {e}")
+            return []
+
+    async def _get_child_folders(self, folder_id: str) -> List[Dict]:
+        """Récupérer les sous-dossiers directs d'un dossier."""
+        try:
+            response = await self.session.get(
+                f"{self.base_url}/me/mailFolders/{folder_id}/childFolders",
+                headers=self.headers,
+                params={'$top': 200, '$select': 'id,displayName,childFolderCount'}
+            )
+            response.raise_for_status()
+            return response.json().get('value', [])
+        except Exception as e:
+            logger.error(f"Erreur sous-dossiers {folder_id}: {e}")
             return []
     
     async def _extract_from_folder(self, folder_id: str, start_date: datetime, end_date: datetime) -> AsyncGenerator[Dict, None]:
