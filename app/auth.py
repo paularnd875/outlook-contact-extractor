@@ -9,6 +9,18 @@ from typing import Optional
 
 auth_router = APIRouter()
 
+# --- Forcer l'IPv4 ---
+# Sur certains réseaux, une adresse IPv6 est renvoyée pour login.microsoftonline.com
+# mais l'IPv6 ne route pas -> requests (MSAL) reste bloqué sans timeout dans
+# create_connection. On filtre les adresses IPv6 au niveau DNS pour tout le process.
+import socket as _socket
+_orig_getaddrinfo = _socket.getaddrinfo
+def _getaddrinfo_ipv4_first(*args, **kwargs):
+    res = _orig_getaddrinfo(*args, **kwargs)
+    v4 = [r for r in res if r[0] == _socket.AF_INET]
+    return v4 or res
+_socket.getaddrinfo = _getaddrinfo_ipv4_first
+
 # Configuration Microsoft Graph
 GRAPH_API_ENDPOINT = 'https://graph.microsoft.com/v1.0'
 SCOPES = ['Mail.Read', 'User.Read', 'Mail.ReadBasic']
@@ -29,7 +41,8 @@ class MSALManager:
         return msal.ConfidentialClientApplication(
             client_id=self.client_id,
             client_credential=self.client_secret,
-            authority=authority
+            authority=authority,
+            instance_discovery=False,  # évite un appel réseau de découverte qui pouvait bloquer
         )
     
     def get_auth_url(self, state: str = None):

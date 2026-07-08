@@ -134,12 +134,20 @@ async def create_contact(db: AsyncSession, email: str, contact_data: dict, sessi
 async def update_contact(db: AsyncSession, contact: Contact, update_data: dict) -> Contact:
     """Mettre à jour un contact existant"""
     for key, value in update_data.items():
+        if key in ("date_dernier_contact", "date_premier_contact"):
+            continue  # dates gérées séparément (max / min des vraies dates d'emails)
         if hasattr(contact, key) and value is not None:
             setattr(contact, key, value)
-    
-    # Mettre à jour la date de dernier contact
-    contact.date_dernier_contact = datetime.utcnow()
-    
+
+    # Dates RÉELLES des échanges (et non l'heure d'extraction) :
+    #   dernier échange = la plus récente vue ; premier échange = la plus ancienne.
+    nd = update_data.get("date_dernier_contact")
+    if nd and (not contact.date_dernier_contact or nd > contact.date_dernier_contact):
+        contact.date_dernier_contact = nd
+    npd = update_data.get("date_premier_contact")
+    if npd and (not contact.date_premier_contact or npd < contact.date_premier_contact):
+        contact.date_premier_contact = npd
+
     await db.commit()
     await db.refresh(contact)
     return contact
@@ -158,7 +166,9 @@ async def get_or_create_contact(db: AsyncSession, email: str, contact_data: dict
         # Mettre à jour avec les nouvelles informations (garder les plus complètes)
         update_data = {}
         for key, value in contact_data.items():
-            if value and (not getattr(existing_contact, key) or len(str(value)) > len(str(getattr(existing_contact, key) or ""))):
+            if key in ("date_dernier_contact", "date_premier_contact"):
+                update_data[key] = value  # toujours transmis -> max/min appliqué dans update_contact
+            elif value and (not getattr(existing_contact, key) or len(str(value)) > len(str(getattr(existing_contact, key) or ""))):
                 update_data[key] = value
         
         if update_data:

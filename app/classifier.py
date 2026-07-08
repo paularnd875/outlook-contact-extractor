@@ -47,26 +47,39 @@ async def ping() -> dict:
 def build_prompt(ctx: dict, profiles: list) -> str:
     """Construit le prompt de classification à partir des catégories et du fil d'échanges."""
     cats = "\n".join(f"- {p['id']} : {p['description']}" for p in profiles)
-    return f"""Tu es un assistant d'un cabinet d'avocats. Tu classes un contact à partir de l'historique RÉEL de ses échanges email avec le cabinet.
+    owner = ctx.get("owner_name") or "le cabinet"
+    owner_email = ctx.get("owner_email") or ""
+    email = ctx["email"]
+    domain = email.split("@")[-1] if "@" in email else ""
+    excerpts = (ctx.get("excerpts") or "").strip() or "(Aucun échange lisible récupéré — classe au mieux d'après le NOM, l'EMAIL et le DOMAINE ci-dessus.)"
+    return f"""Tu es un assistant du cabinet d'avocats de {owner}. Tu classes UN CONTACT de ce cabinet.
+
+⚠️ TRÈS IMPORTANT : la boîte email analysée appartient à {owner} <{owner_email}>. Tu dois classer LE CONTACT ci-dessous (« {ctx['name']} <{email}> »), et SURTOUT PAS la propriétaire {owner}. La signature de {owner} apparaît dans presque tous les emails : IGNORE-la, ce n'est jamais le contact. Ne dis jamais que le contact « se présente comme {owner} ».
 
 Catégories possibles (réponds avec l'identifiant exact, en minuscules) :
 {cats}
 
 Règles :
-- Tiens compte de la RÉCENCE des échanges : un client avec des échanges récents et un dossier en cours = client_actif ; un ancien client dont les derniers échanges sont anciens / dossier clôturé = client_inactif.
-- prospect = a pris contact mais n'est pas encore client (pas de dossier ouvert, pas de convention d'honoraires, pas de facture).
-- avocat = le contact est lui-même un avocat (confrère/consœur). partenaire = autre professionnel prescripteur (notaire, expert-comptable...).
-- Base-toi UNIQUEMENT sur le contenu ci-dessous.
+- RÉCENCE : échanges récents + dossier en cours = client_actif ; ancien client / dossier clôturé = client_inactif.
+- prospect = a pris contact mais pas encore client (ni dossier, ni convention d'honoraires, ni facture).
+- avocat = le contact est lui-même avocat (confrère/consœur/collaborateur). partenaire = autre professionnel prescripteur (notaire, expert-comptable, huissier...).
+- LE DOMAINE DE L'EMAIL est un indice fort, surtout si le fil est absent ou peu concluant :
+    · domaine de cabinet d'avocats (ex. contient « avocat(s) », « barreau », « law ») → **avocat**
+    · « notaire(s) » → **partenaire**
+    · gmail/outlook/hotmail/free/yahoo → un particulier (client/prospect selon le contenu, sinon autre)
+  Ici, domaine du contact = « {domain} ».
+- Ne mets « autre » QUE si vraiment rien n'est exploitable (ni fil, ni indice de domaine/nom).
+- IDENTITÉ : si le PRÉNOM et le NOM de la personne apparaissent clairement (signature « Cordialement, X Y », formule de politesse, ou motif de l'adresse email type « prenom.nom@ » / « p.nom@ »), renseigne « prenom » et « nom ». Si c'est une adresse générique ou une société (accueil@, info@, contact@, no-reply, nom de société sans personne), LAISSE « prenom » et « nom » VIDES. N'invente jamais un prénom à partir d'une simple initiale.
 
-Contact : {ctx['name']} <{ctx['email']}>
-Nombre d'échanges : {ctx['count']}
+Contact : {ctx['name']} <{email}>
+Nombre total d'emails échangés : {ctx['count']}
 Premier échange : {ctx['first']}  |  Dernier échange : {ctx['last']}
 
 Extraits chronologiques (E = envoyé par le cabinet, R = reçu du contact) :
-{ctx['excerpts']}
+{excerpts}
 
 Réponds UNIQUEMENT en JSON valide :
-{{"classification": "<identifiant>", "confiance": <entier 0-100>, "justification": "<1-2 phrases en français citant des éléments concrets du fil>"}}"""
+{{"classification": "<identifiant>", "confiance": <entier 0-100>, "justification": "<1-2 phrases en français ; parle du CONTACT, jamais de {owner}>", "prenom": "<prénom du contact ou vide>", "nom": "<nom de famille du contact ou vide>"}}"""
 
 
 async def classify_contact(ctx: dict, profiles: list) -> dict:
@@ -76,7 +89,7 @@ async def classify_contact(ctx: dict, profiles: list) -> dict:
         "model": LLM_MODEL,
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0, "num_predict": 150},
+        "options": {"temperature": 0, "num_predict": 220},
         "prompt": prompt,
     }
     try:
@@ -99,4 +112,13 @@ async def classify_contact(ctx: dict, profiles: list) -> dict:
     except (ValueError, TypeError):
         conf = 50
     just = str(data.get("justification", "")).strip()[:600]
-    return {"classification": cls, "confidence": conf, "justification": just}
+
+    def _clean_name(v):
+        v = str(v or "").strip()
+        # éviter que l'IA renvoie l'email, un placeholder ou du bruit
+        if not v or "@" in v or v.lower() in ("vide", "n/a", "inconnu", "none", "-"):
+            return ""
+        return v[:60]
+
+    return {"classification": cls, "confidence": conf, "justification": just,
+            "prenom": _clean_name(data.get("prenom")), "nom": _clean_name(data.get("nom"))}

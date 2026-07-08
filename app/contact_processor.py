@@ -54,7 +54,8 @@ class ContactProcessor:
                 'signature_complete': self._clean_string(contact_data.get('signature_complete'), max_length=1000),
                 'source_email_id': contact_data.get('source_email_id'),
                 'type_contact': contact_data.get('type_contact', 'unknown'),
-                'date_dernier_contact': contact_data.get('date_contact', datetime.utcnow())
+                'date_dernier_contact': contact_data.get('date_contact', datetime.utcnow()),
+                'date_premier_contact': contact_data.get('date_contact', datetime.utcnow())
             }
             
             # Créer ou mettre à jour le contact
