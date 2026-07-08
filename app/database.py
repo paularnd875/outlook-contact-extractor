@@ -141,12 +141,24 @@ async def update_contact(db: AsyncSession, contact: Contact, update_data: dict) 
 
     # Dates RÉELLES des échanges (et non l'heure d'extraction) :
     #   dernier échange = la plus récente vue ; premier échange = la plus ancienne.
-    nd = update_data.get("date_dernier_contact")
-    if nd and (not contact.date_dernier_contact or nd > contact.date_dernier_contact):
-        contact.date_dernier_contact = nd
-    npd = update_data.get("date_premier_contact")
-    if npd and (not contact.date_premier_contact or npd < contact.date_premier_contact):
-        contact.date_premier_contact = npd
+    # NB: on force le "naïf" (sans fuseau) et on protège tout par try/except,
+    #     pour ne JAMAIS casser la mise à jour (ni le compteur d'emails) sur une date.
+    def _naive(dt):
+        try:
+            return dt.replace(tzinfo=None) if dt is not None else None
+        except Exception:
+            return None
+    try:
+        nd = _naive(update_data.get("date_dernier_contact"))
+        cur = _naive(contact.date_dernier_contact)
+        if nd and (not cur or nd > cur):
+            contact.date_dernier_contact = nd
+        npd = _naive(update_data.get("date_premier_contact"))
+        curp = _naive(contact.date_premier_contact)
+        if npd and (not curp or npd < curp):
+            contact.date_premier_contact = npd
+    except Exception:
+        pass
 
     await db.commit()
     await db.refresh(contact)

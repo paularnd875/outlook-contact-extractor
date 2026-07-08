@@ -293,7 +293,7 @@ class GraphExtractor:
             'signature_complete': signature_info.get('signature'),
             'source_email_id': message_id,
             'type_contact': contact_type,
-            'date_contact': datetime.fromisoformat(received_date.replace('Z', '+00:00')) if received_date else datetime.utcnow()
+            'date_contact': (datetime.fromisoformat(received_date.replace('Z', '+00:00')).replace(tzinfo=None) if received_date else datetime.utcnow())
         }
     
     def _parse_name(self, display_name: str) -> tuple[Optional[str], Optional[str]]:
