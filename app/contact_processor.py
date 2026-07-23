@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 
 from app.database import get_or_create_contact, Contact
-from app.normalizer import smart_normalize_contact
+from app.normalizer import smart_normalize_contact, clean_person_name
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +44,9 @@ class ContactProcessor:
             
             # Préparer les données pour la base
             processed_data = {
-                'nom': self._clean_string(contact_data.get('nom')),
-                'prenom': self._clean_string(contact_data.get('prenom')),
-                'nom_complet': self._clean_string(contact_data.get('nom_complet')),
+                'nom': self._clean_name(contact_data.get('nom')),
+                'prenom': self._clean_name(contact_data.get('prenom')),
+                'nom_complet': self._clean_name(contact_data.get('nom_complet')),
                 'nom_normalise': nom_normalise,
                 'intitule': self._clean_string(contact_data.get('intitule')),
                 'site_web': self._clean_url(contact_data.get('site_web')),
@@ -83,6 +83,16 @@ class ContactProcessor:
             logger.error(f"Erreur lors du traitement du contact {contact_data.get('email', 'unknown')}: {e}")
             return None
     
+    def _clean_name(self, value: Optional[str]) -> Optional[str]:
+        """Nettoie un champ de nom : retire titres (Dr/Me/Maître...), parenthèses,
+        emails, guillemets — puis nettoyage standard. Chemin commun à tous les
+        extracteurs (Graph + EWS) pour une clé prénom/nom uniforme."""
+        base = self._clean_string(value)
+        if not base:
+            return None
+        cleaned = clean_person_name(base)
+        return cleaned or None
+
     def _clean_string(self, value: Optional[str], max_length: int = 255) -> Optional[str]:
         """
         Nettoyer et valider une chaîne de caractères
