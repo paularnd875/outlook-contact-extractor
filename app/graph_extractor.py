@@ -313,15 +313,14 @@ class GraphExtractor:
         # Nettoyer le nom
         name = display_name.strip()
         
-        # Supprimer les caractères indésirables
-        name = re.sub(r'[<>()[\]{}"]', '', name)
-        
-        # Si c'est un email, l'ignorer
-        if '@' in name:
+        # Nettoyage : retirer titres (Dr/Mr/Me/Maître...), parenthèses, email, guillemets...
+        from app.normalizer import clean_person_name
+        cleaned = clean_person_name(name)
+        if not cleaned:
             return None, None
-        
+
         # Séparer par espaces
-        parts = name.split()
+        parts = cleaned.split()
         
         if len(parts) == 0:
             return None, None

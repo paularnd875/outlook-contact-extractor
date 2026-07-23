@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Exchange hébergé - Extracteur{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0"><i class="fas fa-server me-2"></i>Extraction — Messagerie Exchange hébergée</h5>
+      </div>
+      <div class="card-body">
+        <p class="text-muted">
+          Pour les boîtes <strong>hébergées hors Microsoft 365</strong> (Infoclip / cloudexchange.fr / SolidCP…).
+          Connexion en <strong>lecture seule</strong> via EWS. Lit le carnet de contacts + les emails.
+        </p>
+
+        <div id="ews-form">
+          <div class="mb-3">
+            <label class="form-label">Adresse email</label>
+            <input id="ews-email" type="email" class="form-control" placeholder="prenom.nom@domaine.fr" autocomplete="off">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Mot de passe</label>
+            <input id="ews-password" type="password" class="form-control" autocomplete="off">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Serveur <span class="text-muted">(optionnel)</span></label>
+            <input id="ews-server" type="text" class="form-control" placeholder="ex. webmail.cloudexchange.fr">
+            <div class="form-text">Laisse vide pour la détection automatique.</div>
+          </div>
+          <button id="ews-start" class="btn btn-primary">
+            <i class="fas fa-play me-1"></i> Démarrer l'extraction
+          </button>
+        </div>
+
+        <div id="ews-progress" class="d-none mt-3">
+          <div class="d-flex align-items-center">
+            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+            <span id="ews-status">Connexion et extraction en cours…</span>
+          </div>
+        </div>
+
+        <div id="ews-done" class="d-none mt-3">
+          <div class="alert alert-success"><span id="ews-result"></span></div>
+          <a id="ews-download" class="btn btn-success"><i class="fas fa-download me-1"></i> Télécharger le CSV</a>
+          <button id="ews-again" class="btn btn-outline-secondary ms-2">Nouvelle extraction</button>
+        </div>
+
+        <div id="ews-error" class="d-none mt-3">
+          <div class="alert alert-danger"><span id="ews-error-msg"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function show(id){document.getElementById(id).classList.remove('d-none');}
+function hide(id){document.getElementById(id).classList.add('d-none');}
+
+document.getElementById('ews-start').addEventListener('click', async function(){
+  const email=document.getElementById('ews-email').value.trim();
+  const password=document.getElementById('ews-password').value;
+  const server=document.getElementById('ews-server').value.trim();
+  if(!email||!password){alert('Email et mot de passe requis');return;}
+  hide('ews-form'); hide('ews-error'); show('ews-progress');
+  try{
+    const r=await fetch('/api/extract-ews',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:email,password:password,server:server})});
+    const j=await r.json();
+    if(!r.ok){throw new Error(j.detail||'Erreur');}
+    const sid=j.session_id;
+    const poll=setInterval(async ()=>{
+      let s;
+      try{ s=await (await fetch('/api/extraction/'+sid+'/status')).json(); }catch(e){ return; }
+      document.getElementById('ews-status').textContent='Extraction en cours… '+(s.total_emails||0)+' éléments lus';
+      if(s.status==='completed'){
+        clearInterval(poll); hide('ews-progress');
+        document.getElementById('ews-result').textContent='Terminé : '+(s.total_contacts||0)+' contacts extraits.';
+        document.getElementById('ews-download').href='/api/contacts/export?session_id='+sid;
+        show('ews-done');
+      }else if(s.status==='error'){
+        clearInterval(poll); hide('ews-progress');
+        document.getElementById('ews-error-msg').textContent="Échec : impossible de se connecter. Vérifie l'email, le mot de passe et le serveur.";
+        show('ews-error'); show('ews-form');
+      }
+    },3000);
+  }catch(e){
+    hide('ews-progress');
+    document.getElementById('ews-error-msg').textContent='Erreur : '+e.message;
+    show('ews-error'); show('ews-form');
+  }
+});
+document.getElementById('ews-again').addEventListener('click',()=>{hide('ews-done');show('ews-form');});
+</script>
+{% endblock %}

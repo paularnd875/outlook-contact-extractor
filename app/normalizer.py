@@ -35,6 +35,48 @@ def normalize_name(name: Optional[str]) -> Optional[str]:
     # Retourner None si la chaîne devient vide
     return normalized if normalized else None
 
+# Titres / civilités à retirer des noms (comparés sans accent ni casse)
+_HONORIFICS = {
+    "dr", "mr", "mme", "mrs", "ms", "me", "maitre", "pr", "prof", "professeur",
+    "monsieur", "madame", "mademoiselle", "mlle", "sir", "madam", "m", "mister",
+    "docteur", "phd",
+}
+
+def clean_person_name(raw: Optional[str]) -> Optional[str]:
+    """
+    Nettoie un nom pour ne garder que le vrai prénom/nom :
+    - retire le contenu entre parenthèses/crochets (ex. email, mentions)
+    - retire les adresses email
+    - retire les titres/civilités (Dr, Mr, Me, Maître, Mme...)
+    - retire guillemets, chevrons et ponctuation superflue
+
+    Renvoie « Prénom Nom » propre (ou None).
+    """
+    if not raw:
+        return None
+    s = str(raw)
+    # contenu entre parenthèses / crochets / accolades
+    s = re.sub(r"\([^)]*\)", " ", s)
+    s = re.sub(r"\[[^\]]*\]", " ", s)
+    s = re.sub(r"\{[^}]*\}", " ", s)
+    # adresses email
+    s = re.sub(r"\S+@\S+", " ", s)
+    # guillemets / chevrons
+    s = re.sub(r"[\"'`<>]", " ", s)
+
+    kept = []
+    for w in re.split(r"[\s,]+", s):
+        token = w.strip(".,;:_-")
+        if not token:
+            continue
+        if normalize_name(token) in _HONORIFICS:  # titre -> on jette
+            continue
+        if not re.search(r"[a-zA-ZÀ-ÿ]", token):  # pas de lettre (chiffres/symboles) -> on jette
+            continue
+        kept.append(token)
+    cleaned = " ".join(kept).strip()
+    return cleaned or None
+
 def create_normalized_full_name(nom: Optional[str], prenom: Optional[str]) -> Optional[str]:
     """
     Créer un nom complet normalisé à partir du nom et prénom

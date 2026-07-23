@@ -12,6 +12,7 @@ from app.contacts import contacts_router
 from app.ai_profiler import ai_router
 from app.enriched_classification import enriched_router
 from app.diag import diag_router, setup_log_capture
+from app.ews_api import ews_router
 from app.database import init_db
 
 # Charger les variables d'environnement
@@ -39,6 +40,7 @@ app.include_router(contacts_router, prefix="/api", tags=["contacts"])
 app.include_router(ai_router, prefix="/api/ai", tags=["ai-profiler"])
 app.include_router(enriched_router, prefix="/api/ai", tags=["ai-enriched"])
 app.include_router(diag_router, prefix="/api", tags=["diag"])
+app.include_router(ews_router, prefix="/api", tags=["ews"])
 
 @app.on_event("startup")
 async def startup_event():
@@ -69,6 +71,11 @@ async def get_config():
 async def dashboard(request: Request):
     """Tableau de bord avec prévisualisation des contacts"""
     return templates.TemplateResponse("dashboard.html", _base_ctx(request))
+
+@app.get("/exchange", response_class=HTMLResponse)
+async def exchange(request: Request):
+    """Extraction pour boîtes Exchange hébergées (hors Microsoft 365), via EWS."""
+    return templates.TemplateResponse("exchange.html", _base_ctx(request))
 
 @app.get("/profils", response_class=HTMLResponse)
 async def profils(request: Request):

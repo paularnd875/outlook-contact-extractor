@@ -113,12 +113,14 @@ async def classify_contact(ctx: dict, profiles: list) -> dict:
         conf = 50
     just = str(data.get("justification", "")).strip()[:600]
 
+    from app.normalizer import clean_person_name
     def _clean_name(v):
         v = str(v or "").strip()
-        # éviter que l'IA renvoie l'email, un placeholder ou du bruit
-        if not v or "@" in v or v.lower() in ("vide", "n/a", "inconnu", "none", "-"):
+        # placeholders explicites
+        if not v or v.lower() in ("vide", "n/a", "inconnu", "none", "-"):
             return ""
-        return v[:60]
+        # nettoyage fioritures (titres, parenthèses, email, guillemets)
+        return (clean_person_name(v) or "")[:60]
 
     return {"classification": cls, "confidence": conf, "justification": just,
             "prenom": _clean_name(data.get("prenom")), "nom": _clean_name(data.get("nom"))}
