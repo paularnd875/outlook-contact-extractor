@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Admin — Pré-classification IA{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="fas fa-user-shield me-2"></i>Admin — Extractions Exchange hébergé</h4>
+  {% if llm.ok %}
+    <span class="badge bg-success"><i class="fas fa-circle me-1"></i>Serveur IA en ligne</span>
+  {% else %}
+    <span class="badge bg-danger" title="{{ llm.error or '' }}"><i class="fas fa-circle me-1"></i>Serveur IA éteint</span>
+  {% endif %}
+</div>
+
+{% if not llm.ok %}
+<div class="alert alert-warning">Le serveur d'IA (Scaleway) est éteint. Allume-le avant de lancer une classification.</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-dark table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Date</th><th>Boîte</th><th>Contacts</th><th>Classés</th>
+          <th>Extraits conservés</th><th>Statut IA</th><th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in rows %}
+        <tr id="row-{{ r.id }}">
+          <td class="small text-muted">{{ r.date }}</td>
+          <td>{{ r.email }}</td>
+          <td>{{ r.total }}</td>
+          <td><span class="cls-count">{{ r.classified }}</span></td>
+          <td>{% if r.with_exc %}<span class="badge bg-info">{{ r.with_exc }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td><span class="ai-status">
+            {% if r.ai_status == 'running' %}<span class="badge bg-primary">en cours…</span>
+            {% elif r.ai_status == 'done' %}<span class="badge bg-success">classé</span>
+            {% elif r.ai_status == 'purged' %}<span class="badge bg-secondary">purgé</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </span></td>
+          <td class="text-end">
+            <button class="btn btn-sm btn-primary btn-classify" data-sid="{{ r.id }}"
+                    {% if not r.with_exc or not llm.ok %}disabled{% endif %}>
+              <i class="fas fa-robot me-1"></i>Lancer l'IA
+            </button>
+            <a class="btn btn-sm btn-outline-success" href="/api/contacts/export?session_id={{ r.id }}">
+              <i class="fas fa-download"></i>
+            </a>
+            <button class="btn btn-sm btn-outline-danger btn-purge" data-sid="{{ r.id }}"
+                    {% if not r.with_exc %}disabled{% endif %} title="Purger les extraits sans classer">
+              <i class="fas fa-trash"></i>
+            </button>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">Aucune extraction pour l'instant.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<p class="text-muted small mt-2">Les extraits d'échanges (chiffrés) sont conservés jusqu'à la classification, puis <strong>automatiquement purgés</strong>. « Purger » les efface sans classer.</p>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function pollStatus(sid, btn){
+  const row=document.getElementById('row-'+sid);
+  const statusCell=row.querySelector('.ai-status');
+  const timer=setInterval(async ()=>{
+    let s;
+    try{ s=await (await fetch('/admin/status/'+sid)).json(); }catch(e){ return; }
+    if(s.status==='running' || (s.cls_total && s.cls_done<s.cls_total)){
+      statusCell.innerHTML='<span class="badge bg-primary">'+(s.cls_done||0)+'/'+(s.cls_total||0)+'</span>';
+    }
+    if(s.status==='completed'){
+      clearInterval(timer);
+      statusCell.innerHTML='<span class="badge bg-success">classé</span>';
+      row.querySelector('.cls-count').textContent=(s.cls_total||0);
+      btn.disabled=true;
+    }
+  },2000);
+}
+document.querySelectorAll('.btn-classify').forEach(btn=>{
+  btn.addEventListener('click', async ()=>{
+    const sid=btn.dataset.sid;
+    btn.disabled=true; btn.innerHTML='<span class="spinner-border spinner-border-sm"></span>';
+    try{
+      const r=await fetch('/admin/classify?session_id='+sid,{method:'POST'});
+      if(!r.ok){ const j=await r.json(); alert(j.detail||'Erreur'); btn.disabled=false; btn.innerHTML='<i class="fas fa-robot me-1"></i>Lancer l\'IA'; return; }
+      btn.innerHTML='<i class="fas fa-robot me-1"></i>IA en cours';
+      pollStatus(sid, btn);
+    }catch(e){ alert('Erreur : '+e.message); btn.disabled=false; }
+  });
+});
+document.querySelectorAll('.btn-purge').forEach(btn=>{
+  btn.addEventListener('click', async ()=>{
+    if(!confirm('Purger les extraits de cette extraction (sans classer) ?')) return;
+    const sid=btn.dataset.sid;
+    const r=await fetch('/admin/purge?session_id='+sid,{method:'POST'});
+    const j=await r.json();
+    if(r.ok){ document.getElementById('row-'+sid).querySelector('.ai-status').innerHTML='<span class="badge bg-secondary">purgé</span>'; btn.disabled=true; }
+    else alert(j.detail||'Erreur');
+  });
+});
+</script>
+{% endblock %}

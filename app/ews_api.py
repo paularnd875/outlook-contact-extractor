@@ -26,7 +26,7 @@ PROGRESS: dict = {}
 
 
 async def _ews_task(session_id: str, email: str, password: str, server: str, classify: bool):
-    from app.ews_classification import run as run_classification, PROGRESS as CLS_PROGRESS
+    from app.ews_classification import run as run_classification, encrypt_excerpts, PROGRESS as CLS_PROGRESS
 
     p = PROGRESS.setdefault(session_id, {})
     p.update({"phase": "extraction", "classify": classify, "status": "in_progress",
@@ -63,10 +63,22 @@ async def _ews_task(session_id: str, email: str, password: str, server: str, cla
             )).scalar()
             s.total_contacts = cnt
             p["total_contacts"] = cnt
-            await db.commit()
-            logger.info(f"EWS extraction terminée {email}: {cnt} contacts")
 
-            # --- Pré-classification IA (optionnelle) ---
+            # Conserver (CHIFFRÉ) les extraits d'échanges par contact, pour une
+            # pré-classification IA à la demande plus tard. Purgés après classification.
+            s.owner_name = ext.owner_name or None
+            stored = 0
+            contacts = (await db.execute(
+                select(Contact).where(Contact.session_id == session_id))).scalars().all()
+            for c in contacts:
+                enc = encrypt_excerpts(ext.excerpts.get(c.email, []))
+                if enc:
+                    c.exchanges_enc = enc
+                    stored += 1
+            await db.commit()
+            logger.info(f"EWS extraction terminée {email}: {cnt} contacts, {stored} avec extraits")
+
+            # --- Pré-classification IA (optionnelle, immédiate) ---
             if classify and CLASSIFICATION_ENABLED and cnt:
                 from app.classifier import ping
                 llm = await ping()
@@ -79,7 +91,7 @@ async def _ews_task(session_id: str, email: str, password: str, server: str, cla
                     p["message"] = "Analyse IA des contacts en cours…"
                     # synchronise la progression de classification dans notre PROGRESS
                     CLS_PROGRESS[session_id] = p
-                    await run_classification(session_id, ext)
+                    await run_classification(session_id, purge=True)
 
             s.status = "completed"
             s.date_fin = datetime.utcnow()

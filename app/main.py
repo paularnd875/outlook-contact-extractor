@@ -13,6 +13,7 @@ from app.ai_profiler import ai_router
 from app.enriched_classification import enriched_router
 from app.diag import diag_router, setup_log_capture
 from app.ews_api import ews_router
+from app.admin import admin_router
 from app.database import init_db
 
 # Charger les variables d'environnement
@@ -41,6 +42,7 @@ app.include_router(ai_router, prefix="/api/ai", tags=["ai-profiler"])
 app.include_router(enriched_router, prefix="/api/ai", tags=["ai-enriched"])
 app.include_router(diag_router, prefix="/api", tags=["diag"])
 app.include_router(ews_router, prefix="/api", tags=["ews"])
+app.include_router(admin_router, tags=["admin"])
 
 @app.on_event("startup")
 async def startup_event():

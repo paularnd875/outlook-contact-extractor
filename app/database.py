@@ -43,6 +43,10 @@ class Contact(Base):
     classification = Column(String, nullable=True)  # "client", "prospect", "avocat", "autre"
     justification_classification = Column(Text, nullable=True)  # Explication de l'IA
     confiance_classification = Column(Integer, nullable=True)  # Score 0-100
+
+    # Extraits d'échanges (objets + corps tronqués) CHIFFRÉS, conservés
+    # temporairement pour la pré-classification IA à la demande, puis PURGÉS.
+    exchanges_enc = Column(Text, nullable=True)
     
     # Contrainte unique: même email autorisé dans différentes sessions
     __table_args__ = (UniqueConstraint('email', 'session_id', name='unique_email_per_session'),)
@@ -88,6 +92,8 @@ class ExtractionSession(Base):
     periode_debut = Column(DateTime, nullable=True)
     periode_fin = Column(DateTime, nullable=True)
     erreur_message = Column(Text, nullable=True)
+    owner_name = Column(String, nullable=True)  # nom du propriétaire (désambiguïsation IA)
+    ai_status = Column(String, nullable=True)  # None | running | done (classification admin)
     
     def to_dict(self):
         return {
@@ -108,9 +114,21 @@ class ExtractionSession(Base):
         }
 
 async def init_db():
-    """Initialiser la base de données"""
+    """Initialiser la base de données (création + migration légère des colonnes)."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Auto-migration : ajoute les colonnes manquantes aux bases existantes.
+        from sqlalchemy import text
+        migrations = [
+            ("contacts", "exchanges_enc", "TEXT"),
+            ("extraction_sessions", "owner_name", "VARCHAR"),
+            ("extraction_sessions", "ai_status", "VARCHAR"),
+        ]
+        for table, col, coltype in migrations:
+            try:
+                await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {coltype}'))
+            except Exception:
+                pass  # colonne déjà présente
 
 async def get_db():
     """Obtenir une session de base de données"""

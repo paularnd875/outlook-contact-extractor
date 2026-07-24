@@ -7,11 +7,31 @@ Lit le carnet de contacts ET les emails (Réception + Envoyés) pour en déduire
 les contacts, au même format que GraphExtractor (pour réutiliser ContactProcessor).
 """
 
+import re
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Marqueurs de citation pour couper l'historique repris dans chaque message.
+_QUOTE_RE = re.compile(
+    r"^\s*-+\s*Message d'origine|^\s*-+\s*Original Message|^\s*De\s*:|^\s*From\s*:"
+    r"|^\s*Le .*a écrit\s*:|^\s*On .*wrote\s*:|^\s*>|^\s*_{5,}",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _clean_body(text: str, max_len: int = 400) -> str:
+    """Garde la partie utile d'un corps de mail (coupe l'historique cité), tronque."""
+    if not text:
+        return ""
+    m = _QUOTE_RE.search(text)
+    if m:
+        text = text[:m.start()]
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{2,}", "\n", text).strip()
+    return text[:max_len]
 
 
 def _naive(dt) -> datetime:
@@ -116,7 +136,8 @@ class EWSExtractor:
     def _read_mail(self, folder, remaining: int) -> List[Dict]:
         out = []
         qs = folder.all().only("sender", "to_recipients", "cc_recipients",
-                               "datetime_received", "datetime_sent", "message_id", "subject")
+                               "datetime_received", "datetime_sent", "message_id",
+                               "subject", "text_body")
         n = 0
         for msg in qs:
             n += 1
@@ -126,6 +147,7 @@ class EWSExtractor:
             dt = _naive(getattr(msg, "datetime_received", None) or getattr(msg, "datetime_sent", None))
             mid = getattr(msg, "message_id", None)
             subject = (getattr(msg, "subject", None) or "").strip()
+            body = _clean_body(getattr(msg, "text_body", None) or "")
             people = []
             s = getattr(msg, "sender", None)
             if s and getattr(s, "email_address", None):
@@ -149,7 +171,7 @@ class EWSExtractor:
                 # extrait pour l'IA : R = reçu du contact (il est expéditeur), E = envoyé au contact
                 bucket = self.excerpts.setdefault(addr, [])
                 if len(bucket) < self._max_excerpts:
-                    bucket.append((dt, "R" if typ == "sender" else "E", subject))
+                    bucket.append((dt, "R" if typ == "sender" else "E", subject, body))
         return out
 
     def extract(self, global_cap: int = 300000) -> List[Dict]:
