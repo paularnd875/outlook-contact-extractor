@@ -27,6 +27,13 @@
             <input id="ews-server" type="text" class="form-control" value="webmail.cloudexchange.fr" placeholder="ex. webmail.cloudexchange.fr">
             <div class="form-text">Serveur de la messagerie hébergée. Ne pas laisser vide.</div>
           </div>
+          <div id="ews-ia-option" class="form-check mb-3 d-none">
+            <input class="form-check-input" type="checkbox" id="ews-classify">
+            <label class="form-check-label" for="ews-classify">
+              <i class="fas fa-robot me-1"></i> Lancer aussi une <strong>pré-classification IA</strong> des contacts
+              <span class="text-muted d-block small">Analyse les échanges pour proposer une catégorie (avocat, partenaire, client…). Nécessite le serveur d'IA allumé.</span>
+            </label>
+          </div>
           <button id="ews-start" class="btn btn-primary">
             <i class="fas fa-play me-1"></i> Démarrer l'extraction
           </button>
@@ -59,31 +66,49 @@
 function show(id){document.getElementById(id).classList.remove('d-none');}
 function hide(id){document.getElementById(id).classList.add('d-none');}
 
+// Affiche l'option IA seulement si l'instance a la classification activée
+(async ()=>{
+  try{
+    const cfg=await (await fetch('/api/config')).json();
+    if(cfg && cfg.classification_enabled){ show('ews-ia-option'); }
+  }catch(e){}
+})();
+
 document.getElementById('ews-start').addEventListener('click', async function(){
   const email=document.getElementById('ews-email').value.trim();
   const password=document.getElementById('ews-password').value;
   const server=document.getElementById('ews-server').value.trim();
+  const classify=document.getElementById('ews-classify').checked;
   if(!email||!password){alert('Email et mot de passe requis');return;}
   if(!server){alert('Le serveur est requis (ex. webmail.cloudexchange.fr)');return;}
   hide('ews-form'); hide('ews-error'); show('ews-progress');
   try{
     const r=await fetch('/api/extract-ews',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({email:email,password:password,server:server})});
+      body:JSON.stringify({email:email,password:password,server:server,classify:classify})});
     const j=await r.json();
     if(!r.ok){throw new Error(j.detail||'Erreur');}
     const sid=j.session_id;
     const poll=setInterval(async ()=>{
       let s;
-      try{ s=await (await fetch('/api/extraction/'+sid+'/status')).json(); }catch(e){ return; }
-      document.getElementById('ews-status').textContent='Extraction en cours… '+(s.total_emails||0)+' éléments lus';
+      try{ s=await (await fetch('/api/ews-progress/'+sid)).json(); }catch(e){ return; }
+      let msg;
+      if(s.phase==='classification'){
+        msg='Analyse IA… '+(s.cls_done||0)+'/'+(s.cls_total||0)+' contacts';
+      }else{
+        msg='Extraction en cours… '+(s.total_emails||0)+' éléments lus';
+      }
+      document.getElementById('ews-status').textContent=msg;
       if(s.status==='completed'){
         clearInterval(poll); hide('ews-progress');
-        document.getElementById('ews-result').textContent='Terminé : '+(s.total_contacts||0)+' contacts extraits.';
+        let txt=(s.total_contacts||0)+' contacts extraits.';
+        if(s.classify && !s.ai_skipped){ txt+=' Pré-classification IA effectuée.'; }
+        if(s.ai_skipped){ txt+=' (Analyse IA ignorée : serveur d\'IA éteint.)'; }
+        document.getElementById('ews-result').textContent='Terminé : '+txt;
         document.getElementById('ews-download').href='/api/contacts/export?session_id='+sid;
         show('ews-done');
       }else if(s.status==='error'){
         clearInterval(poll); hide('ews-progress');
-        document.getElementById('ews-error-msg').textContent="Échec : impossible de se connecter. Vérifie l'email, le mot de passe et le serveur.";
+        document.getElementById('ews-error-msg').textContent=s.message||"Échec : impossible de se connecter.";
         show('ews-error'); show('ews-form');
       }
     },3000);

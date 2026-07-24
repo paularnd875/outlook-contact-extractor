@@ -46,7 +46,12 @@ class EWSExtractor:
         self.password = password
         self.server = (server or "").strip() or None
         self.owner_email = (email or "").lower().strip()
+        self.owner_name = ""
         self.account = None
+        # Extraits (objets de mails) par contact, pour la pré-classification IA.
+        # Léger : on ne stocke que l'objet + date + sens, jamais le corps.
+        self.excerpts: Dict[str, list] = {}
+        self._max_excerpts = 8
 
     def connect(self):
         from exchangelib import Credentials, Account, Configuration, DELEGATE
@@ -111,7 +116,7 @@ class EWSExtractor:
     def _read_mail(self, folder, remaining: int) -> List[Dict]:
         out = []
         qs = folder.all().only("sender", "to_recipients", "cc_recipients",
-                               "datetime_received", "datetime_sent", "message_id")
+                               "datetime_received", "datetime_sent", "message_id", "subject")
         n = 0
         for msg in qs:
             n += 1
@@ -120,10 +125,14 @@ class EWSExtractor:
                 break
             dt = _naive(getattr(msg, "datetime_received", None) or getattr(msg, "datetime_sent", None))
             mid = getattr(msg, "message_id", None)
+            subject = (getattr(msg, "subject", None) or "").strip()
             people = []
             s = getattr(msg, "sender", None)
             if s and getattr(s, "email_address", None):
                 people.append((s.name, s.email_address, "sender"))
+                # mémorise le nom du propriétaire (expéditeur de ses propres envois)
+                if not self.owner_name and (s.email_address or "").lower().strip() == self.owner_email and getattr(s, "name", None):
+                    self.owner_name = s.name
             for attr in ("to_recipients", "cc_recipients"):
                 for r in (getattr(msg, attr, None) or []):
                     if getattr(r, "email_address", None):
@@ -137,6 +146,10 @@ class EWSExtractor:
                     "email": addr, "nom_complet": name, "nom": nom, "prenom": prenom,
                     "type_contact": typ, "date_contact": dt, "source_email_id": mid,
                 })
+                # extrait pour l'IA : R = reçu du contact (il est expéditeur), E = envoyé au contact
+                bucket = self.excerpts.setdefault(addr, [])
+                if len(bucket) < self._max_excerpts:
+                    bucket.append((dt, "R" if typ == "sender" else "E", subject))
         return out
 
     def extract(self, global_cap: int = 300000) -> List[Dict]:
