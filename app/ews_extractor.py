@@ -60,75 +60,122 @@ class EWSExtractor:
         logger.info(f"EWS connecté: {self.email} ({self.account.version})")
         return self.account
 
-    def _address_book(self) -> List[Dict]:
-        out = []
-        try:
-            for c in self.account.contacts.all():
-                email = None
-                for ea in (getattr(c, "email_addresses", None) or []):
-                    if getattr(ea, "email", None):
-                        email = ea.email.lower().strip()
-                        break
-                if not email or "@" not in email:
-                    continue
-                out.append({
-                    "email": email,
-                    "prenom": getattr(c, "given_name", None),
-                    "nom": getattr(c, "surname", None),
-                    "nom_complet": getattr(c, "display_name", None),
-                    "intitule": getattr(c, "job_title", None),
-                    "type_contact": "carnet",
-                    "date_contact": _naive(getattr(c, "last_modified_time", None)),
-                    "source_email_id": None,
-                })
-        except Exception as e:
-            logger.error(f"EWS lecture carnet: {e}")
-        return out
-
-    def _from_emails(self, max_per_folder: int = 6000) -> List[Dict]:
-        out = []
-        folders = []
-        for attr in ("inbox", "sent"):
+    def _iter_all_folders(self):
+        """Parcourt récursivement l'arbre de dossiers VISIBLE de l'utilisateur
+        (mails + carnets, sous-dossiers et archives compris), en évitant les
+        dizaines de dossiers système cachés. Déduplique par identifiant."""
+        seen = set()
+        candidates = []
+        # dossiers bien connus d'abord (au cas où walk() en manquerait un)
+        for attr in ("inbox", "sent", "contacts", "drafts", "outbox"):
             f = getattr(self.account, attr, None)
             if f is not None:
-                folders.append(f)
-        for folder in folders:
+                candidates.append(f)
+        # arbre utilisateur : "Haut de la banque d'informations"
+        root = getattr(self.account, "msg_folder_root", None) or getattr(self.account, "root", None)
+        if root is not None:
             try:
-                qs = folder.all().only("sender", "to_recipients", "cc_recipients",
-                                       "datetime_received", "datetime_sent", "message_id")
-                n = 0
-                for msg in qs:
-                    n += 1
-                    if n > max_per_folder:
-                        break
-                    dt = _naive(getattr(msg, "datetime_received", None) or getattr(msg, "datetime_sent", None))
-                    mid = getattr(msg, "message_id", None)
-                    people = []
-                    s = getattr(msg, "sender", None)
-                    if s and getattr(s, "email_address", None):
-                        people.append((s.name, s.email_address, "sender"))
-                    for attr in ("to_recipients", "cc_recipients"):
-                        for r in (getattr(msg, attr, None) or []):
-                            if getattr(r, "email_address", None):
-                                people.append((r.name, r.email_address, "recipient"))
-                    for name, addr, typ in people:
-                        addr = (addr or "").lower().strip()
-                        if not addr or "@" not in addr or addr == self.owner_email:
-                            continue
-                        nom, prenom = _split_name(name)
-                        out.append({
-                            "email": addr, "nom_complet": name, "nom": nom, "prenom": prenom,
-                            "type_contact": typ, "date_contact": dt, "source_email_id": mid,
-                        })
+                for f in root.walk():
+                    candidates.append(f)
             except Exception as e:
-                logger.error(f"EWS lecture dossier {getattr(folder,'name','?')}: {e}")
+                logger.error(f"EWS walk: {e}")
+        for f in candidates:
+            fid = getattr(f, "id", None) or id(f)
+            if fid in seen:
+                continue
+            seen.add(fid)
+            yield f
+
+    def _read_contacts(self, folder) -> List[Dict]:
+        out = []
+        for c in folder.all():
+            email = None
+            for ea in (getattr(c, "email_addresses", None) or []):
+                if getattr(ea, "email", None):
+                    email = ea.email.lower().strip()
+                    break
+            if not email or "@" not in email:
+                continue
+            out.append({
+                "email": email,
+                "prenom": getattr(c, "given_name", None),
+                "nom": getattr(c, "surname", None),
+                "nom_complet": getattr(c, "display_name", None),
+                "intitule": getattr(c, "job_title", None),
+                "type_contact": "carnet",
+                "date_contact": _naive(getattr(c, "last_modified_time", None)),
+                "source_email_id": None,
+            })
         return out
 
-    def extract(self) -> List[Dict]:
-        """Retourne la liste des contacts (carnet + emails). Bloquant (sync)."""
-        contacts = self._address_book()
-        logger.info(f"EWS: {len(contacts)} entrées de carnet")
-        emails_contacts = self._from_emails()
-        logger.info(f"EWS: {len(emails_contacts)} occurrences depuis les emails")
-        contacts.extend(emails_contacts)
+    def _read_mail(self, folder, remaining: int) -> List[Dict]:
+        out = []
+        qs = folder.all().only("sender", "to_recipients", "cc_recipients",
+                               "datetime_received", "datetime_sent", "message_id")
+        n = 0
+        for msg in qs:
+            n += 1
+            if n > remaining:
+                logger.warning(f"EWS: plafond atteint dans {getattr(folder,'name','?')}")
+                break
+            dt = _naive(getattr(msg, "datetime_received", None) or getattr(msg, "datetime_sent", None))
+            mid = getattr(msg, "message_id", None)
+            people = []
+            s = getattr(msg, "sender", None)
+            if s and getattr(s, "email_address", None):
+                people.append((s.name, s.email_address, "sender"))
+            for attr in ("to_recipients", "cc_recipients"):
+                for r in (getattr(msg, attr, None) or []):
+                    if getattr(r, "email_address", None):
+                        people.append((r.name, r.email_address, "recipient"))
+            for name, addr, typ in people:
+                addr = (addr or "").lower().strip()
+                if not addr or "@" not in addr or addr == self.owner_email:
+                    continue
+                nom, prenom = _split_name(name)
+                out.append({
+                    "email": addr, "nom_complet": name, "nom": nom, "prenom": prenom,
+                    "type_contact": typ, "date_contact": dt, "source_email_id": mid,
+                })
+        return out
+
+    def extract(self, global_cap: int = 300000) -> List[Dict]:
+        """Retourne la liste des contacts depuis TOUS les dossiers (carnets + mails,
+        récursif, sous-dossiers/archives compris). Bloquant (sync).
+        Ignore Spam et Corbeille pour éviter les contacts parasites."""
+        # ids des dossiers à exclure (spam / corbeille)
+        skip_ids = set()
+        for attr in ("junk", "trash"):
+            f = getattr(self.account, attr, None)
+            fid = getattr(f, "id", None) if f is not None else None
+            if fid:
+                skip_ids.add(fid)
+
+        contacts = []
+        mail_folders = contact_folders = mail_seen = 0
+        for folder in self._iter_all_folders():
+            if getattr(folder, "id", None) in skip_ids:
+                continue
+            cc = getattr(folder, "CONTAINER_CLASS", None) or ""
+            try:
+                if cc.startswith("IPF.Contact"):
+                    # carnet ou sous-carnet (Sociétés, GAL, cache de destinataires...)
+                    entries = self._read_contacts(folder)
+                    contacts.extend(entries)
+                    contact_folders += 1
+                elif cc == "IPF.Note":
+                    # dossier mail (Réception, Envoyés, et TOUS les sous-dossiers/archives)
+                    remaining = global_cap - mail_seen
+                    if remaining <= 0:
+                        logger.warning("EWS: plafond global atteint, arrêt lecture mails")
+                        break
+                    entries = self._read_mail(folder, remaining)
+                    contacts.extend(entries)
+                    mail_seen += len(entries)
+                    mail_folders += 1
+                # autres classes (calendrier, tâches, notes, dossiers système) : ignorées
+            except Exception as e:
+                logger.error(f"EWS lecture dossier {getattr(folder,'name','?')} ({cc}): {e}")
+        logger.info(f"EWS: {contact_folders} carnets + {mail_folders} dossiers mail parcourus "
+                    f"-> {len(contacts)} occurrences de contacts")
         return contacts
