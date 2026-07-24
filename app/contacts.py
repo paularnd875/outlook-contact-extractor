@@ -247,9 +247,9 @@ async def export_contacts(
         
         # Données
         for contact in contacts:
-            # Combiner le nom avec l'email pour la colonne "Nom"
-            nom_avec_email = f"{contact.nom or ''} ({contact.email})" if contact.nom else contact.email
-            
+            # Colonne "Nom" = nom propre uniquement (l'email a déjà sa colonne dédiée)
+            nom_seul = contact.nom or ''
+
             # Obtenir le nom de la classification IA pour l'export
             classification_labels = {
                 'client': 'Client',
@@ -261,7 +261,7 @@ async def export_contacts(
             classification_ia = classification_labels.get(contact.classification, contact.classification or 'Non classé')
             
             row = [
-                nom_avec_email,  # Nom avec email inclus
+                nom_seul,  # Nom propre (sans email)
                 contact.prenom or '',
                 contact.nom_complet or '',
                 contact.email,
