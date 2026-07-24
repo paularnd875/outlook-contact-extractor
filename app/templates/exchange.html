@@ -23,9 +23,9 @@
             <input id="ews-password" type="password" class="form-control" autocomplete="off">
           </div>
           <div class="mb-3">
-            <label class="form-label">Serveur <span class="text-muted">(optionnel)</span></label>
-            <input id="ews-server" type="text" class="form-control" placeholder="ex. webmail.cloudexchange.fr">
-            <div class="form-text">Laisse vide pour la détection automatique.</div>
+            <label class="form-label">Serveur</label>
+            <input id="ews-server" type="text" class="form-control" value="webmail.cloudexchange.fr" placeholder="ex. webmail.cloudexchange.fr">
+            <div class="form-text">Serveur de la messagerie hébergée. Ne pas laisser vide.</div>
           </div>
           <button id="ews-start" class="btn btn-primary">
             <i class="fas fa-play me-1"></i> Démarrer l'extraction
@@ -64,6 +64,7 @@ document.getElementById('ews-start').addEventListener('click', async function(){
   const password=document.getElementById('ews-password').value;
   const server=document.getElementById('ews-server').value.trim();
   if(!email||!password){alert('Email et mot de passe requis');return;}
+  if(!server){alert('Le serveur est requis (ex. webmail.cloudexchange.fr)');return;}
   hide('ews-form'); hide('ews-error'); show('ews-progress');
   try{
     const r=await fetch('/api/extract-ews',{method:'POST',headers:{'Content-Type':'application/json'},
