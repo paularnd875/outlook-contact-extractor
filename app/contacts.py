@@ -399,13 +399,37 @@ async def bulk_validate_contacts(
         raise HTTPException(status_code=500, detail=f"Erreur lors de la validation en lot: {str(e)}")
 
 async def extract_contacts_task(session_id: str, user_id: str, period_months: float):
+    """Enveloppe : borne la concurrence (file d'attente) avant de lancer
+    l'extraction Graph, pour protéger l'instance en cas d'extractions simultanées."""
+    from app.concurrency import extraction_semaphore, slots_available
+    from app.database import SessionLocal
+
+    if not slots_available():
+        # Signaler l'attente dans le statut suivi par le front (poll /status).
+        try:
+            async with SessionLocal() as db:
+                s = (await db.execute(
+                    select(ExtractionSession).where(ExtractionSession.id == session_id)
+                )).scalar_one_or_none()
+                if s:
+                    s.current_step = ("En file d'attente : d'autres extractions sont en cours, "
+                                      "démarrage automatique dès qu'un créneau se libère…")
+                    await db.commit()
+        except Exception:
+            pass
+
+    async with extraction_semaphore:
+        await _extract_contacts_run(session_id, user_id, period_months)
+
+
+async def _extract_contacts_run(session_id: str, user_id: str, period_months: float):
     """Tâche d'extraction des contacts en arrière-plan"""
-    
+
     from app.database import SessionLocal
     import logging
-    
+
     logger = logging.getLogger(__name__)
-    
+
     async with SessionLocal() as db:
         extraction_session = None
         try:

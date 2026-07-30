@@ -26,6 +26,24 @@ PROGRESS: dict = {}
 
 
 async def _ews_task(session_id: str, email: str, password: str, server: str, classify: bool):
+    """Enveloppe : borne la concurrence (file d'attente) avant de lancer
+    l'extraction. Si aucun créneau n'est libre, l'associé voit un message
+    « en file d'attente » ; le démarrage est automatique dès qu'un se libère."""
+    from app.concurrency import extraction_semaphore, slots_available
+
+    if not slots_available():
+        p = PROGRESS.setdefault(session_id, {})
+        p.update({"phase": "queued", "classify": classify, "status": "in_progress",
+                  "total_emails": 0, "total_contacts": 0,
+                  "message": "Beaucoup d'extractions sont en cours — vous êtes en file "
+                             "d'attente. Le démarrage se fera automatiquement, restez sur "
+                             "cette page…"})
+
+    async with extraction_semaphore:
+        await _ews_run(session_id, email, password, server, classify)
+
+
+async def _ews_run(session_id: str, email: str, password: str, server: str, classify: bool):
     from app.ews_classification import run as run_classification, encrypt_excerpts, PROGRESS as CLS_PROGRESS
 
     p = PROGRESS.setdefault(session_id, {})

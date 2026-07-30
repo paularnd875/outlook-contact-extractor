@@ -94,6 +94,8 @@ document.getElementById('ews-start').addEventListener('click', async function(){
       let msg;
       if(s.phase==='classification'){
         msg='Analyse IA… '+(s.cls_done||0)+'/'+(s.cls_total||0)+' contacts';
+      }else if(s.phase==='queued'){
+        msg=s.message||"En file d'attente… le démarrage est automatique, restez sur cette page.";
       }else{
         msg='Extraction en cours… '+(s.total_emails||0)+' éléments lus';
       }

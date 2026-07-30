@@ -8,11 +8,34 @@ from typing import Optional
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./contacts.db")
 
+_is_sqlite = DATABASE_URL.startswith("sqlite")
+
 # Pour SQLite asynchrone
-if DATABASE_URL.startswith("sqlite"):
+if _is_sqlite:
     DATABASE_URL = DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://")
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+# Timeout de connexion large : quand plusieurs extractions écrivent en même
+# temps dans le même fichier SQLite, on attend le verrou au lieu d'échouer.
+_connect_args = {"timeout": 30} if _is_sqlite else {}
+engine = create_async_engine(DATABASE_URL, echo=False, connect_args=_connect_args)
+
+# SQLite : réglages de CONCURRENCE, appliqués à chaque nouvelle connexion.
+#   - WAL           : lecteurs et écrivain ne se bloquent plus mutuellement ;
+#   - busy_timeout  : attendre jusqu'à 30 s un verrou occupé (plus de
+#                     « database is locked » quand plusieurs associés extraient) ;
+#   - synchronous=NORMAL : commits nettement plus rapides en WAL (sûr).
+# Indispensable pour supporter plusieurs extractions simultanées.
+if _is_sqlite:
+    from sqlalchemy import event
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, class_=AsyncSession)
 
 Base = declarative_base()
