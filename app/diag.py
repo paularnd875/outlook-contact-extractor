@@ -42,13 +42,14 @@ diag_router = APIRouter()
 
 
 @diag_router.get("/diag")
-async def diag(key: str = Query(...), db: AsyncSession = Depends(get_db)):
+async def diag(key: str = Query(...), limit: int = Query(50, ge=1, le=500),
+               db: AsyncSession = Depends(get_db)):
     """État des dernières extractions + derniers logs. Protégé par la clé (= AZURE_CLIENT_ID)."""
     if key != os.getenv("AZURE_CLIENT_ID"):
         raise HTTPException(status_code=403, detail="clé invalide")
 
     result = await db.execute(
-        select(ExtractionSession).order_by(desc(ExtractionSession.date_debut)).limit(8)
+        select(ExtractionSession).order_by(desc(ExtractionSession.date_debut)).limit(limit)
     )
     sessions = result.scalars().all()
     out = []
@@ -56,8 +57,14 @@ async def diag(key: str = Query(...), db: AsyncSession = Depends(get_db)):
         cnt = (await db.execute(
             select(func.count(Contact.id)).where(Contact.session_id == s.id)
         )).scalar()
+        # Type de connecteur déduit du user_id (ews:... pour Exchange hébergé, sinon Graph/M365)
+        connecteur = "ews" if (s.user_id or "").startswith("ews:") else "graph"
         out.append({
             "id": s.id,
+            "email_address": s.email_address,
+            "owner_name": s.owner_name,
+            "user_id": s.user_id,
+            "connecteur": connecteur,
             "status": s.status,
             "date_debut": s.date_debut.isoformat() if s.date_debut else None,
             "date_fin": s.date_fin.isoformat() if s.date_fin else None,
