@@ -9,6 +9,7 @@ les contacts, au même format que GraphExtractor (pour réutiliser ContactProces
 
 import os
 import re
+import time
 import logging
 from datetime import datetime
 from typing import Dict, Iterator, List, Optional
@@ -26,6 +27,26 @@ def _default_global_cap() -> int:
 
 
 _DEFAULT_GLOBAL_CAP = _default_global_cap()
+
+
+def _throttle_params():
+    """Throttling : une courte pause tous les N mails, pour ESPACER les requêtes EWS.
+    Sans ça, une grosse extraction (ex. 253k mails de Marine) envoie des centaines de
+    milliers de requêtes en rafale et fait bannir l'IP par le pare-feu de l'hébergeur
+    (cloudexchange) -> timeouts de connexion pour TOUT le monde. Réglable sans
+    redéploiement via EWS_THROTTLE_EVERY (mails) et EWS_THROTTLE_MS (millisecondes)."""
+    try:
+        every = max(1, int(os.getenv("EWS_THROTTLE_EVERY", "100")))
+    except (TypeError, ValueError):
+        every = 100
+    try:
+        ms = max(0, int(os.getenv("EWS_THROTTLE_MS", "300")))
+    except (TypeError, ValueError):
+        ms = 300
+    return every, ms / 1000.0
+
+
+_THROTTLE_EVERY, _THROTTLE_SEC = _throttle_params()
 
 # Marqueurs de citation pour couper l'historique repris dans chaque message.
 _QUOTE_RE = re.compile(
@@ -126,7 +147,11 @@ class EWSExtractor:
 
     def _read_contacts(self, folder) -> Iterator[Dict]:
         """Génère (yield) les entrées du carnet, une à une (pas d'accumulation)."""
+        i = 0
         for c in folder.all():
+            i += 1
+            if _THROTTLE_SEC and i % _THROTTLE_EVERY == 0:
+                time.sleep(_THROTTLE_SEC)
             email = None
             for ea in (getattr(c, "email_addresses", None) or []):
                 if getattr(ea, "email", None):
@@ -158,6 +183,11 @@ class EWSExtractor:
             if n > remaining:
                 logger.warning(f"EWS: plafond atteint dans {getattr(folder,'name','?')}")
                 break
+            # Throttling : petite pause tous les N mails pour espacer les requêtes EWS
+            # (évite de faire bannir l'IP par le pare-feu de l'hébergeur). S'exécute
+            # dans le thread producteur -> ne bloque pas la boucle async.
+            if _THROTTLE_SEC and n % _THROTTLE_EVERY == 0:
+                time.sleep(_THROTTLE_SEC)
             dt = _naive(getattr(msg, "datetime_received", None) or getattr(msg, "datetime_sent", None))
             mid = getattr(msg, "message_id", None)
             subject = (getattr(msg, "subject", None) or "").strip()
