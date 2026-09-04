@@ -58,21 +58,55 @@ async def _ews_run(session_id: str, email: str, password: str, server: str, clas
         try:
             ext = EWSExtractor(email, password, server)
 
-            def _sync():
-                ext.connect()
-                return ext.extract()
+            # STREAMING : un thread producteur lit la boîte (exchangelib est bloquant)
+            # et pousse les occurrences par lots dans une file BORNÉE ; la boucle async
+            # les traite au fil de l'eau. Le pic mémoire est plafonné par la file
+            # (~BATCH * maxsize occurrences), au lieu de matérialiser toute la boîte
+            # (jusqu'à 250k+ dicts) -> corrige l'OOM sur les grosses boîtes (09/2026).
+            import queue as _queue
 
-            raw = await asyncio.to_thread(_sync)
-            s.total_emails = len(raw)
-            p["total_emails"] = len(raw)
-            await db.commit()
+            BATCH = 500
+            SENTINEL = object()
+            q: "_queue.Queue" = _queue.Queue(maxsize=4)
+            holder: dict = {}
+
+            def _produce():
+                try:
+                    ext.connect()
+                    batch = []
+                    for cd in ext.extract_iter():
+                        batch.append(cd)
+                        if len(batch) >= BATCH:
+                            q.put(batch)  # bloque si la file est pleine -> backpressure
+                            batch = []
+                    if batch:
+                        q.put(batch)
+                except Exception as e:  # connexion KO, etc. -> remontée au consommateur
+                    holder["error"] = e
+                finally:
+                    q.put(SENTINEL)
+
+            producer = asyncio.create_task(asyncio.to_thread(_produce))
 
             proc = ContactProcessor(db, session_id)
-            for cd in raw:
-                try:
-                    await proc.process_contact(cd)
-                except Exception:
-                    await db.rollback()
+            total = 0
+            while True:
+                item = await asyncio.to_thread(q.get)
+                if item is SENTINEL:
+                    break
+                for cd in item:
+                    try:
+                        await proc.process_contact(cd)
+                    except Exception:
+                        await db.rollback()
+                    total += 1
+                p["total_emails"] = total
+
+            await producer  # s'assure que le thread est terminé
+            if holder.get("error"):
+                raise holder["error"]
+
+            s.total_emails = total
             await proc.finalize_processing()
             await proc.deduplicate_contacts()
 

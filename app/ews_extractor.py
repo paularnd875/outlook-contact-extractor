@@ -7,12 +7,25 @@ Lit le carnet de contacts ET les emails (Réception + Envoyés) pour en déduire
 les contacts, au même format que GraphExtractor (pour réutiliser ContactProcessor).
 """
 
+import os
 import re
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _default_global_cap() -> int:
+    """Plafond du nombre de MAILS lus par extraction (garde-fou temps de traitement,
+    plus la mémoire depuis le passage en streaming). Configurable via EWS_GLOBAL_CAP."""
+    try:
+        return max(1, int(os.getenv("EWS_GLOBAL_CAP", "300000")))
+    except (TypeError, ValueError):
+        return 300000
+
+
+_DEFAULT_GLOBAL_CAP = _default_global_cap()
 
 # Marqueurs de citation pour couper l'historique repris dans chaque message.
 _QUOTE_RE = re.compile(
@@ -111,8 +124,8 @@ class EWSExtractor:
             seen.add(fid)
             yield f
 
-    def _read_contacts(self, folder) -> List[Dict]:
-        out = []
+    def _read_contacts(self, folder) -> Iterator[Dict]:
+        """Génère (yield) les entrées du carnet, une à une (pas d'accumulation)."""
         for c in folder.all():
             email = None
             for ea in (getattr(c, "email_addresses", None) or []):
@@ -121,7 +134,7 @@ class EWSExtractor:
                     break
             if not email or "@" not in email:
                 continue
-            out.append({
+            yield {
                 "email": email,
                 "prenom": getattr(c, "given_name", None),
                 "nom": getattr(c, "surname", None),
@@ -130,11 +143,12 @@ class EWSExtractor:
                 "type_contact": "carnet",
                 "date_contact": _naive(getattr(c, "last_modified_time", None)),
                 "source_email_id": None,
-            })
-        return out
+            }
 
-    def _read_mail(self, folder, remaining: int) -> List[Dict]:
-        out = []
+    def _read_mail(self, folder, remaining: int) -> Iterator[Dict]:
+        """Génère (yield) les occurrences de contacts d'un dossier mail, une à une.
+        `remaining` borne le nombre de MAILS lus (pas d'occurrences) pour respecter
+        le plafond global. Ne matérialise jamais la liste complète en mémoire."""
         qs = folder.all().only("sender", "to_recipients", "cc_recipients",
                                "datetime_received", "datetime_sent", "message_id",
                                "subject", "text_body")
@@ -164,19 +178,20 @@ class EWSExtractor:
                 if not addr or "@" not in addr or addr == self.owner_email:
                     continue
                 nom, prenom = _split_name(name)
-                out.append({
-                    "email": addr, "nom_complet": name, "nom": nom, "prenom": prenom,
-                    "type_contact": typ, "date_contact": dt, "source_email_id": mid,
-                })
                 # extrait pour l'IA : R = reçu du contact (il est expéditeur), E = envoyé au contact
                 bucket = self.excerpts.setdefault(addr, [])
                 if len(bucket) < self._max_excerpts:
                     bucket.append((dt, "R" if typ == "sender" else "E", subject, body))
-        return out
+                yield {
+                    "email": addr, "nom_complet": name, "nom": nom, "prenom": prenom,
+                    "type_contact": typ, "date_contact": dt, "source_email_id": mid,
+                }
 
-    def extract(self, global_cap: int = 300000) -> List[Dict]:
-        """Retourne la liste des contacts depuis TOUS les dossiers (carnets + mails,
-        récursif, sous-dossiers/archives compris). Bloquant (sync).
+    def extract_iter(self, global_cap: int = _DEFAULT_GLOBAL_CAP) -> Iterator[Dict]:
+        """Génère (yield) les occurrences de contacts depuis TOUS les dossiers
+        (carnets + mails, récursif, sous-dossiers/archives compris), une à une.
+        Bloquant (sync) mais SANS accumulation en RAM : le consommateur traite au
+        fil de l'eau -> pic mémoire plat, quelle que soit la taille de la boîte.
         Ignore Spam et Corbeille pour éviter les contacts parasites."""
         # ids des dossiers à exclure (spam / corbeille)
         skip_ids = set()
@@ -186,8 +201,7 @@ class EWSExtractor:
             if fid:
                 skip_ids.add(fid)
 
-        contacts = []
-        mail_folders = contact_folders = mail_seen = 0
+        mail_folders = contact_folders = mail_seen = yielded = 0
         for folder in self._iter_all_folders():
             if getattr(folder, "id", None) in skip_ids:
                 continue
@@ -195,8 +209,9 @@ class EWSExtractor:
             try:
                 if cc.startswith("IPF.Contact"):
                     # carnet ou sous-carnet (Sociétés, GAL, cache de destinataires...)
-                    entries = self._read_contacts(folder)
-                    contacts.extend(entries)
+                    for entry in self._read_contacts(folder):
+                        yielded += 1
+                        yield entry
                     contact_folders += 1
                 elif cc == "IPF.Note":
                     # dossier mail (Réception, Envoyés, et TOUS les sous-dossiers/archives)
@@ -204,13 +219,19 @@ class EWSExtractor:
                     if remaining <= 0:
                         logger.warning("EWS: plafond global atteint, arrêt lecture mails")
                         break
-                    entries = self._read_mail(folder, remaining)
-                    contacts.extend(entries)
-                    mail_seen += len(entries)
+                    for entry in self._read_mail(folder, remaining):
+                        mail_seen += 1
+                        yielded += 1
+                        yield entry
                     mail_folders += 1
                 # autres classes (calendrier, tâches, notes, dossiers système) : ignorées
             except Exception as e:
                 logger.error(f"EWS lecture dossier {getattr(folder,'name','?')} ({cc}): {e}")
         logger.info(f"EWS: {contact_folders} carnets + {mail_folders} dossiers mail parcourus "
-                    f"-> {len(contacts)} occurrences de contacts")
-        return contacts
+                    f"-> {yielded} occurrences de contacts")
+
+    def extract(self, global_cap: int = _DEFAULT_GLOBAL_CAP) -> List[Dict]:
+        """Compat : matérialise toutes les occurrences en liste. À N'UTILISER que
+        pour de petites boîtes/tests — préférez extract_iter() en production pour
+        éviter la saturation mémoire sur les grosses boîtes (cf. incident 09/2026)."""
+        return list(self.extract_iter(global_cap))
