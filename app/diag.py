@@ -5,6 +5,9 @@ sans accès aux logs de l'hébergeur.
 """
 
 import os
+import time
+import socket
+import asyncio
 import logging
 import collections
 
@@ -75,3 +78,28 @@ async def diag(key: str = Query(...), limit: int = Query(50, ge=1, le=500),
         })
 
     return {"sessions": out, "logs": list(_LOG_BUFFER)[-300:]}
+
+
+@diag_router.get("/diag/ews-reachable")
+async def ews_reachable(key: str = Query(...),
+                        host: str = Query("webmail.cloudexchange.fr"),
+                        port: int = Query(443, ge=1, le=65535),
+                        timeout: float = Query(15.0, gt=0, le=120)):
+    """Sonde SANS identifiants : depuis l'IP de Render, tente un simple connect TCP
+    vers le serveur Exchange hébergé. Sert à savoir si l'IP de Render est bannie par
+    le pare-feu de l'hébergeur (timeout = droppée ; ok = débloquée) sans avoir besoin
+    du mot de passe d'un associé. Protégé par la clé (= AZURE_CLIENT_ID)."""
+    if key != os.getenv("AZURE_CLIENT_ID"):
+        raise HTTPException(status_code=403, detail="clé invalide")
+
+    def _probe():
+        t0 = time.monotonic()
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return {"reachable": True, "ms": round((time.monotonic() - t0) * 1000)}
+        except Exception as e:
+            return {"reachable": False, "ms": round((time.monotonic() - t0) * 1000),
+                    "error": f"{type(e).__name__}: {e}"}
+
+    result = await asyncio.to_thread(_probe)
+    return {"host": host, "port": port, **result}
