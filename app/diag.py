@@ -103,3 +103,26 @@ async def ews_reachable(key: str = Query(...),
 
     result = await asyncio.to_thread(_probe)
     return {"host": host, "port": port, **result}
+
+
+@diag_router.get("/diag/outbound-ip")
+async def outbound_ip(key: str = Query(...)):
+    """Renvoie l'IP SORTANTE vue par l'extérieur pour CE serveur (celle que le
+    pare-feu de l'hébergeur voit). Sert à fournir au SI de Woog la/les IP à
+    whitelister, sans avoir besoin d'ouvrir le dashboard Render. Render pouvant
+    sortir sur plusieurs IP, appeler plusieurs fois pour toutes les découvrir.
+    Protégé par la clé (= AZURE_CLIENT_ID)."""
+    if key != os.getenv("AZURE_CLIENT_ID"):
+        raise HTTPException(status_code=403, detail="clé invalide")
+
+    def _fetch():
+        import urllib.request
+        for url in ("https://api.ipify.org", "https://checkip.amazonaws.com"):
+            try:
+                with urllib.request.urlopen(url, timeout=10) as r:
+                    return {"ip": r.read().decode().strip(), "via": url}
+            except Exception:
+                continue
+        return {"error": "impossible de déterminer l'IP sortante"}
+
+    return await asyncio.to_thread(_fetch)
