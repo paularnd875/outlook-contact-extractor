@@ -95,15 +95,20 @@ def _split_name(nom_complet: Optional[str]):
 class EWSExtractor:
     """Extracteur via EWS pour Exchange hébergé."""
 
-    def __init__(self, email: str, password: str, server: Optional[str] = None):
+    def __init__(self, email: str, password: str, server: Optional[str] = None,
+                 capture_excerpts: bool = False):
         self.email = email
         self.password = password
         self.server = (server or "").strip() or None
         self.owner_email = (email or "").lower().strip()
         self.owner_name = ""
         self.account = None
-        # Extraits (objets de mails) par contact, pour la pré-classification IA.
-        # Léger : on ne stocke que l'objet + date + sens, jamais le corps.
+        # MODE LÉGER (défaut) : on NE télécharge PAS le corps des mails et on
+        # n'accumule aucun extrait -> en-têtes seuls, mémoire plate même sur une
+        # très grosse boîte partagée (évite l'OOM). Miroir du "light mode" du
+        # connecteur Graph. On n'active la capture des extraits (corps tronqué,
+        # pour la pré-classification IA "plus tard") que si explicitement demandé.
+        self.capture_excerpts = bool(capture_excerpts)
         self.excerpts: Dict[str, list] = {}
         self._max_excerpts = 8
 
@@ -174,9 +179,13 @@ class EWSExtractor:
         """Génère (yield) les occurrences de contacts d'un dossier mail, une à une.
         `remaining` borne le nombre de MAILS lus (pas d'occurrences) pour respecter
         le plafond global. Ne matérialise jamais la liste complète en mémoire."""
-        qs = folder.all().only("sender", "to_recipients", "cc_recipients",
-                               "datetime_received", "datetime_sent", "message_id",
-                               "subject", "text_body")
+        # En mode léger, on ne demande PAS subject/text_body (le corps est le plus
+        # gros payload par mail) -> moins de RAM et de réseau, pas d'OOM.
+        fields = ["sender", "to_recipients", "cc_recipients",
+                  "datetime_received", "datetime_sent", "message_id"]
+        if self.capture_excerpts:
+            fields += ["subject", "text_body"]
+        qs = folder.all().only(*fields)
         n = 0
         for msg in qs:
             n += 1
@@ -190,8 +199,9 @@ class EWSExtractor:
                 time.sleep(_THROTTLE_SEC)
             dt = _naive(getattr(msg, "datetime_received", None) or getattr(msg, "datetime_sent", None))
             mid = getattr(msg, "message_id", None)
-            subject = (getattr(msg, "subject", None) or "").strip()
-            body = _clean_body(getattr(msg, "text_body", None) or "")
+            if self.capture_excerpts:
+                subject = (getattr(msg, "subject", None) or "").strip()
+                body = _clean_body(getattr(msg, "text_body", None) or "")
             people = []
             s = getattr(msg, "sender", None)
             if s and getattr(s, "email_address", None):
@@ -208,10 +218,12 @@ class EWSExtractor:
                 if not addr or "@" not in addr or addr == self.owner_email:
                     continue
                 nom, prenom = _split_name(name)
-                # extrait pour l'IA : R = reçu du contact (il est expéditeur), E = envoyé au contact
-                bucket = self.excerpts.setdefault(addr, [])
-                if len(bucket) < self._max_excerpts:
-                    bucket.append((dt, "R" if typ == "sender" else "E", subject, body))
+                # extrait pour l'IA (seulement si capture activée) : R = reçu du
+                # contact (il est expéditeur), E = envoyé au contact
+                if self.capture_excerpts:
+                    bucket = self.excerpts.setdefault(addr, [])
+                    if len(bucket) < self._max_excerpts:
+                        bucket.append((dt, "R" if typ == "sender" else "E", subject, body))
                 yield {
                     "email": addr, "nom_complet": name, "nom": nom, "prenom": prenom,
                     "type_contact": typ, "date_contact": dt, "source_email_id": mid,

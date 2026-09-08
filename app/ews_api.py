@@ -4,6 +4,7 @@ Extraction des contacts, puis (option) pré-classification IA avec le même
 serveur LLM EU que la version Microsoft 365.
 """
 
+import os
 import uuid
 import asyncio
 import logging
@@ -56,7 +57,12 @@ async def _ews_run(session_id: str, email: str, password: str, server: str, clas
         )).scalar_one()
         ext = None
         try:
-            ext = EWSExtractor(email, password, server)
+            # Capture des extraits (corps des mails) UNIQUEMENT si l'IA est
+            # demandée maintenant, ou si on veut alimenter le flux « classer plus
+            # tard » (flag EWS_CAPTURE_EXCERPTS=true). Sinon mode LÉGER (en-têtes
+            # seuls) -> mémoire plate, pas d'OOM sur les très grosses boîtes.
+            capture = bool(classify) or os.getenv("EWS_CAPTURE_EXCERPTS", "").strip().lower() in ("1", "true", "yes", "on")
+            ext = EWSExtractor(email, password, server, capture_excerpts=capture)
 
             # STREAMING : un thread producteur lit la boîte (exchangelib est bloquant)
             # et pousse les occurrences par lots dans une file BORNÉE ; la boucle async
