@@ -13,7 +13,7 @@ import collections
 
 from fastapi import APIRouter, Query, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, delete
 
 from app.database import get_db, ExtractionSession, Contact
 
@@ -126,3 +126,18 @@ async def outbound_ip(key: str = Query(...)):
         return {"error": "impossible de déterminer l'IP sortante"}
 
     return await asyncio.to_thread(_fetch)
+
+
+@diag_router.post("/diag/delete-session")
+async def delete_session(key: str = Query(...), id: str = Query(...),
+                         db: AsyncSession = Depends(get_db)):
+    """Supprime UNE session d'extraction (par id) et ses contacts. Sert au ménage
+    des sessions parasites (runs zombies restés 'in_progress', doublons, échecs).
+    Protégé par la clé (= AZURE_CLIENT_ID). Ne touche qu'à l'id fourni."""
+    if key != os.getenv("AZURE_CLIENT_ID"):
+        raise HTTPException(status_code=403, detail="clé invalide")
+
+    nc = (await db.execute(delete(Contact).where(Contact.session_id == id))).rowcount
+    ns = (await db.execute(delete(ExtractionSession).where(ExtractionSession.id == id))).rowcount
+    await db.commit()
+    return {"id": id, "deleted_session": ns, "deleted_contacts": nc}
