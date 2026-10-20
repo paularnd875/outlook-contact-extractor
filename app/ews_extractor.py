@@ -126,8 +126,9 @@ class EWSExtractor:
 
     def _iter_all_folders(self):
         """Parcourt récursivement l'arbre de dossiers VISIBLE de l'utilisateur
-        (mails + carnets, sous-dossiers et archives compris), en évitant les
-        dizaines de dossiers système cachés. Déduplique par identifiant."""
+        (mails + carnets, sous-dossiers et dossiers d'archivage compris), ainsi que
+        l'ARCHIVE EN LIGNE (In-Place / Online Archive) si la boîte en possède une,
+        en évitant les dizaines de dossiers système cachés. Déduplique par identifiant."""
         seen = set()
         candidates = []
         # dossiers bien connus d'abord (au cas où walk() en manquerait un)
@@ -135,7 +136,7 @@ class EWSExtractor:
             f = getattr(self.account, attr, None)
             if f is not None:
                 candidates.append(f)
-        # arbre utilisateur : "Haut de la banque d'informations"
+        # arbre utilisateur (boîte principale) : "Haut de la banque d'informations"
         root = getattr(self.account, "msg_folder_root", None) or getattr(self.account, "root", None)
         if root is not None:
             try:
@@ -143,6 +144,28 @@ class EWSExtractor:
                     candidates.append(f)
             except Exception as e:
                 logger.error(f"EWS walk: {e}")
+        # ARCHIVE EN LIGNE : boîte d'archive SÉPARÉE (fréquente sur Exchange hébergé
+        # quand le quota de la boîte principale est atteint). Elle n'est PAS atteinte
+        # par le walk de la boîte principale -> on la parcourt explicitement si elle
+        # existe. Accès défensif : certaines boîtes n'en ont pas (lève une exception).
+        for attr in ("archive_msg_folder_root", "archive_root"):
+            try:
+                aroot = getattr(self.account, attr, None)
+            except Exception as e:
+                logger.info(f"EWS: archive en ligne indisponible via {attr}: {e}")
+                continue
+            if aroot is None:
+                continue
+            try:
+                candidates.append(aroot)
+                n_before = len(candidates)
+                for f in aroot.walk():
+                    candidates.append(f)
+                logger.info(f"EWS: archive en ligne détectée ({attr}), "
+                            f"{len(candidates) - n_before} dossier(s) d'archive ajouté(s)")
+                break  # une seule racine d'archive suffit
+            except Exception as e:
+                logger.info(f"EWS: archive en ligne non parcourue ({attr}): {e}")
         for f in candidates:
             fid = getattr(f, "id", None) or id(f)
             if fid in seen:
