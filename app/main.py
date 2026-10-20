@@ -69,6 +69,17 @@ async def get_config():
     return {"classification_enabled": CLASSIFICATION_ENABLED, "llm": llm}
 
 
+@app.get("/api/version")
+async def get_version():
+    """Commit Git déployé (fourni par Render) — sert à confirmer qu'un déploiement est bien live."""
+    import os
+    return {
+        "commit": os.getenv("RENDER_GIT_COMMIT", "inconnu"),
+        "branch": os.getenv("RENDER_GIT_BRANCH", "inconnu"),
+        "features": {"ews_online_archive": True},
+    }
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Tableau de bord avec prévisualisation des contacts"""
